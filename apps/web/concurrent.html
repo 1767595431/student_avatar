@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>多人并发联调 · 学生端</title>
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.7.5/dist/livekit-client.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #10161f;
+      --panel: #1a2330;
+      --text: #e8eef5;
+      --muted: #8b9bb0;
+      --accent: #3d8bfd;
+      --ok: #3ecf8e;
+      --warn: #f0b429;
+      --err: #f07178;
+      --line: #2a3545;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; color: var(--text);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(900px 480px at 10% -10%, #1a2b42, transparent),
+        radial-gradient(800px 420px at 90% 0%, #182433, transparent),
+        var(--bg);
+      padding: 20px 18px 40px;
+    }
+    h1 { margin: 0 0 6px; font-size: 22px; font-weight: 650; }
+    .sub { color: var(--muted); margin-bottom: 16px; font-size: 14px; }
+    .bar {
+      display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;
+    }
+    label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+    input[type=number] {
+      width: 88px; border: 1px solid var(--line); border-radius: 8px;
+      background: #0f1520; color: var(--text); padding: 8px 10px; font-size: 14px;
+    }
+    button {
+      appearance: none; border: 0; border-radius: 10px; padding: 10px 16px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      background: var(--accent); color: #fff;
+    }
+    button.secondary { background: #334155; }
+    button.danger { background: #8b3a3a; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+    }
+    .card {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 12px; overflow: hidden; display: flex; flex-direction: column;
+    }
+    .stage {
+      position: relative; aspect-ratio: 16/9; background: #000;
+    }
+    .stage img, .stage video {
+      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    }
+    .stage video { z-index: 2; }
+    .meta { padding: 10px 12px; font-size: 12px; line-height: 1.45; }
+    .meta .title { font-weight: 650; margin-bottom: 4px; }
+    .meta .st { color: var(--ok); }
+    .meta .st.busy { color: var(--warn); }
+    .meta .st.err { color: var(--err); }
+    .meta .asid { color: var(--muted); word-break: break-all; }
+    .meta .asr { margin-top: 4px; color: #c9d6e8; }
+    .log {
+      margin-top: 14px; max-height: 180px; overflow: auto;
+      background: #0c1118; border: 1px solid var(--line); border-radius: 10px;
+      padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px; color: var(--muted); white-space: pre-wrap;
+    }
+    a { color: #7eb6ff; }
+  </style>
+</head>
+<body>
+  <h1>多人并发联调</h1>
+  <div class="sub">
+    设置路数 → 开多画面推流 → 录一段语音 → <b>按间隔交替提交</b>到各路。
+    默认形象/音模来自 <a href="/admin">管理端</a>；单路页 <a href="/">/</a>
+  </div>
+
+  <div class="bar">
+    <label>形象
+      <select id="selAvatar" style="min-width:160px"></select>
+    </label>
+    <label>音模
+      <select id="selVoice" style="min-width:120px"></select>
+    </label>
+    <label>智能体
+      <select id="selAgent" style="min-width:120px"></select>
+    </label>
+    <label>并发路数
+      <input id="nLanes" type="number" min="1" max="30" value="4" />
+    </label>
+    <label>提交间隔 (ms)
+      <input id="gapMs" type="number" min="200" max="10000" step="100" value="1500" />
+    </label>
+    <button id="btnOpen">开启画面</button>
+    <button id="btnTalk" class="secondary" disabled>按住说话</button>
+    <button id="btnRound" class="secondary" disabled>用上一段再跑一轮</button>
+    <button id="btnStopAll" class="danger" disabled>全部停止/打断</button>
+    <button id="btnCloseAll" class="secondary" disabled>关闭全部会话</button>
+  </div>
+
+  <div id="grid"></div>
+  <div class="log" id="log"></div>
+
+<script>
+const API = location.origin;
+const LK = window.LivekitClient;
+const lanes = []; // {i, session, room, els, state}
+let mediaRecorder = null;
+let recChunks = [];
+let lastBlob = null;
+let pollTimer = null;
+let busySubmit = false;
+let options = null;
+
+const $ = (id) => document.getElementById(id);
+const log = (m) => {
+  const el = $('log');
+  const t = new Date().toLocaleTimeString();
+  el.textContent += `[${t}] ${m}\n`;
+  el.scrollTop = el.scrollHeight;
+};
+
+async function loadOptions() {
+  const r = await fetch(API + '/api/v1/options');
+  options = await r.json();
+  const sa = $('selAvatar'), sv = $('selVoice'), sg = $('selAgent');
+  sa.innerHTML = sv.innerHTML = sg.innerHTML = '';
+  for (const a of options.avatars || []) {
+    const o = document.createElement('option');
+    o.value = `${a.avatar_id}|${a.version_id}`;
+    o.textContent = `${a.name}`;
+    if (a.is_default) o.selected = true;
+    sa.appendChild(o);
+  }
+  for (const v of options.voices || []) {
+    const o = document.createElement('option');
+    o.value = v.voice_id;
+    o.textContent = v.name || v.voice_id;
+    if (v.is_default || v.voice_id === options.defaults?.voice_id) o.selected = true;
+    sv.appendChild(o);
+  }
+  for (const g of options.agents || []) {
+    const o = document.createElement('option');
+    o.value = g.agent_id;
+    o.textContent = g.name || g.agent_id;
+    if (g.is_default || g.agent_id === options.defaults?.agent_id) o.selected = true;
+    sg.appendChild(o);
+  }
+  sa.onchange = () => {
+    const av = options.avatars.find(a => `${a.avatar_id}|${a.version_id}` === sa.value);
+    if (av?.voice_id && [...sv.options].some(o => o.value === av.voice_id)) sv.value = av.voice_id;
+  };
+  sa.onchange();
+}
+
+function selectedBody(student_id) {
+  const av = options.avatars.find(a => `${a.avatar_id}|${a.version_id}` === $('selAvatar').value);
+  if (!av) throw new Error('请选择形象');
+  const voice_id = $('selVoice').value;
+  const agent_id = $('selAgent').value;
+  if (!voice_id || !agent_id) throw new Error('请选择音模和智能体');
+  return {
+    student_id,
+    avatar_id: av.avatar_id,
+    avatar_version_id: av.version_id,
+    voice_id,
+    agent_id,
+  };
+}
+
+function browserLivekitUrl(url) {
+  try {
+    const http = url.replace(/^ws/i, 'http');
+    const u = new URL(http);
+    u.hostname = location.hostname;
+    if (location.protocol === 'https:') {
+      u.port = '7443';
+      return `wss://${u.host}`;
+    }
+    if (!u.port) u.port = '7880';
+    return `ws://${u.host}`;
+  } catch (e) {
+    return url;
+  }
+}
+
+function stateLabel(s) {
+  return ({
+    idle: '待机', recognizing: '识别中', thinking: 'LLM中',
+    speaking: 'TTS/讲话中', interrupting: '打断中', closed: '已关闭'
+  })[s] || s || '-';
+}
+
+function setLaneState(lane, state, extra) {
+  lane.state = state;
+  const el = lane.els.st;
+  el.textContent = stateLabel(state) + (extra ? ` · ${extra}` : '');
+  el.className = 'st' + (['recognizing','thinking','speaking'].includes(state) ? ' busy' : '') + (state === 'error' ? ' err' : '');
+}
+
+function makeCard(i) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <div class="stage">
+      <img class="idle" alt="idle" />
+      <video class="vid" autoplay playsinline muted></video>
+    </div>
+    <div class="meta">
+      <div class="title">路 #${i + 1}</div>
+      <div class="st">未开</div>
+      <div class="asid"></div>
+      <div class="asr"></div>
+    </div>`;
+  $('grid').appendChild(card);
+  const audioBox = document.createElement('div');
+  audioBox.className = 'audio-box';
+  card.appendChild(audioBox);
+  return {
+    card,
+    idle: card.querySelector('.idle'),
+    vid: card.querySelector('.vid'),
+    st: card.querySelector('.st'),
+    asid: card.querySelector('.asid'),
+    asr: card.querySelector('.asr'),
+    audioBox,
+  };
+}
+
+async function createOne(i) {
+  const els = makeCard(i);
+  const body = selectedBody(`conc_${String(i).padStart(2,'0')}`);
+  const res = await fetch(API + '/api/v1/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const session = await res.json();
+  els.idle.src = API + session.idle_image_url;
+  els.asid.textContent = `${session.session_id} · ${session.agent_name || session.agent_id} · ${session.voice_id}`;
+  setLaneState({ els }, 'idle');
+
+  const ens = await fetch(API + `/api/v1/sessions/${session.session_id}/media/ensure`, { method: 'POST' });
+  if (!ens.ok) throw new Error(await ens.text());
+  const media = await ens.json();
+  session.livekit_token = media.livekit_token;
+  session.livekit_url = browserLivekitUrl(media.livekit_url);
+
+  const room = new LK.Room();
+  room.on(LK.RoomEvent.TrackSubscribed, (track) => {
+    if (track.kind === 'video') {
+      track.attach(els.vid);
+      els.vid.muted = true; // 避免 N 路视频自带啸叫；听音频轨
+      els.vid.style.opacity = 1;
+    } else if (track.kind === 'audio') {
+      const a = track.attach();
+      a.autoplay = true;
+      a.controls = false;
+      els.audioBox.appendChild(a);
+    }
+  });
+  await room.connect(session.livekit_url, session.livekit_token);
+  log(`#${i + 1} 进房 ${session.session_id}`);
+  const lane = { i, session, room, els, state: 'idle' };
+  setLaneState(lane, 'idle', '已推流');
+  return lane;
+}
+
+async function closeLane(lane) {
+  try { await lane.room?.disconnect(); } catch (e) {}
+  lane.room = null;
+  if (lane.els?.audioBox) lane.els.audioBox.innerHTML = '';
+  if (lane.els?.vid) { lane.els.vid.srcObject = null; lane.els.vid.style.opacity = 0; }
+  if (lane.session?.session_id) {
+    try {
+      await fetch(API + `/api/v1/sessions/${lane.session.session_id}`, { method: 'DELETE', keepalive: true });
+    } catch (e) {}
+  }
+}
+
+async function closeAllLanes() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  const copy = lanes.splice(0, lanes.length);
+  await Promise.all(copy.map((lane) => closeLane(lane)));
+  $('grid').innerHTML = '';
+  $('btnTalk').disabled = true;
+  $('btnRound').disabled = true;
+  $('btnStopAll').disabled = true;
+  $('btnCloseAll').disabled = true;
+  $('btnOpen').disabled = false;
+  log(`已关闭 ${copy.length} 路会话`);
+}
+
+async function openLanes() {
+  if (lanes.length) await closeAllLanes();
+  const n = Math.max(1, Math.min(30, Number($('nLanes').value) || 1));
+  $('btnOpen').disabled = true;
+  $('grid').innerHTML = '';
+  lanes.length = 0;
+  log(`开启 ${n} 路…`);
+  try {
+    for (let i = 0; i < n; i++) {
+      const lane = await createOne(i);
+      lanes.push(lane);
+    }
+    $('btnTalk').disabled = false;
+    $('btnRound').disabled = !lastBlob;
+    $('btnStopAll').disabled = false;
+    $('btnCloseAll').disabled = false;
+    startPoll();
+    log(`已开 ${lanes.length} 路画面，可按住说话后交替提交`);
+  } catch (e) {
+    log('开启失败: ' + e);
+    await closeAllLanes().catch(() => {});
+    $('btnOpen').disabled = false;
+  }
+}
+
+function startPoll() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    await Promise.all(lanes.map(async (lane) => {
+      try {
+        const r = await fetch(API + `/api/v1/sessions/${lane.session.session_id}`);
+        if (!r.ok) return;
+        const j = await r.json();
+        setLaneState(lane, j.state);
+        if (j.recognized_text) lane.els.asr.textContent = '识别: ' + j.recognized_text;
+        if (j.media_state === 'CLOSED' && lane.room) {
+          try { await lane.room.disconnect(); } catch (e) {}
+          lane.room = null;
+          lane.els.vid.style.opacity = 0;
+          lane._media_closed = true;
+        }
+      } catch (e) {}
+    }));
+  }, 500);
+}
+
+async function reensureLane(lane) {
+  const ens = await fetch(API + `/api/v1/sessions/${lane.session.session_id}/media/ensure`, { method: 'POST' });
+  if (!ens.ok) throw new Error(await ens.text());
+  const media = await ens.json();
+  lane.session.livekit_token = media.livekit_token;
+  lane.session.livekit_url = browserLivekitUrl(media.livekit_url);
+  try { await lane.room?.disconnect(); } catch (e) {}
+  const room = new LK.Room();
+  room.on(LK.RoomEvent.TrackSubscribed, (track) => {
+    if (track.kind === 'video') {
+      track.attach(lane.els.vid);
+      lane.els.vid.muted = true;
+      lane.els.vid.style.opacity = 1;
+    } else if (track.kind === 'audio') {
+      lane.els.audioBox.innerHTML = '';
+      const a = track.attach();
+      a.autoplay = true;
+      lane.els.audioBox.appendChild(a);
+    }
+  });
+  await room.connect(lane.session.livekit_url, lane.session.livekit_token);
+  lane.room = room;
+  lane._media_closed = false;
+}
+
+async function submitToLane(lane, blob, tag) {
+  setLaneState(lane, 'recognizing', tag);
+  if (lane._media_closed) {
+    try { await reensureLane(lane); log(`#${lane.i + 1} 媒体重连`); } catch (e) { log(`#${lane.i + 1} 重连失败 ${e}`); }
+  }
+  const fd = new FormData();
+  fd.append('audio', blob, 'q.webm');
+  const res = await fetch(API + `/api/v1/sessions/${lane.session.session_id}/questions`, {
+    method: 'POST', body: fd,
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    setLaneState(lane, 'error', '提交失败');
+    log(`#${lane.i + 1} 失败 ${JSON.stringify(j)}`);
+    return;
+  }
+  lane.els.asr.textContent = '识别: ' + (j.recognized_text || '');
+  setLaneState(lane, j.state || 'thinking', '已提交');
+  log(`#${lane.i + 1} 提交成功 · ${j.recognized_text || ''}`);
+}
+
+async function alternateSubmit(blob) {
+  if (!lanes.length) return;
+  if (busySubmit) { log('上一轮还在交替提交中'); return; }
+  busySubmit = true;
+  $('btnTalk').disabled = true;
+  $('btnRound').disabled = true;
+  const gap = Math.max(200, Number($('gapMs').value) || 1500);
+  log(`开始交替提交：${lanes.length} 路，间隔 ${gap}ms`);
+  try {
+    for (let i = 0; i < lanes.length; i++) {
+      await submitToLane(lanes[i], blob, `提交 ${i + 1}/${lanes.length}`);
+      if (i < lanes.length - 1) await new Promise((r) => setTimeout(r, gap));
+    }
+    log('全部路已提交完，等待各路 LLM→TTS→推流');
+  } finally {
+    busySubmit = false;
+    $('btnTalk').disabled = false;
+    $('btnRound').disabled = false;
+  }
+}
+
+async function startRec() {
+  if (!lanes.length) { log('请先开启画面'); return; }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  recChunks = [];
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
+  mediaRecorder.start();
+  log('录音中…松开后按间隔交替提交到各路');
+}
+
+async function stopRec() {
+  if (!mediaRecorder) return;
+  await new Promise((resolve) => {
+    mediaRecorder.onstop = resolve;
+    mediaRecorder.stop();
+    mediaRecorder.stream.getTracks().forEach((t) => t.stop());
+  });
+  lastBlob = new Blob(recChunks, { type: 'audio/webm' });
+  mediaRecorder = null;
+  $('btnRound').disabled = false;
+  log(`录音完成 ${(lastBlob.size / 1024).toFixed(1)} KB，开始交替提交`);
+  await alternateSubmit(lastBlob);
+}
+
+async function stopAll() {
+  await Promise.all(lanes.map(async (lane) => {
+    try {
+      await fetch(API + `/api/v1/sessions/${lane.session.session_id}/interrupt`, { method: 'POST' });
+      setLaneState(lane, 'idle', '已打断');
+    } catch (e) {}
+  }));
+  log('已向全部路发送 interrupt');
+}
+
+$('btnOpen').onclick = () => openLanes();
+$('btnRound').onclick = () => {
+  if (!lastBlob) return;
+  alternateSubmit(lastBlob).catch((e) => log(String(e)));
+};
+$('btnStopAll').onclick = () => stopAll().catch((e) => log(String(e)));
+$('btnCloseAll').onclick = () => closeAllLanes().catch((e) => log(String(e)));
+
+const btn = $('btnTalk');
+btn.addEventListener('mousedown', (e) => { e.preventDefault(); startRec().catch((err) => log(String(err))); });
+btn.addEventListener('mouseup', (e) => { e.preventDefault(); stopRec().catch((err) => log(String(err))); });
+btn.addEventListener('mouseleave', () => { if (mediaRecorder && mediaRecorder.state === 'recording') stopRec().catch(() => {}); });
+btn.addEventListener('touchstart', (e) => { e.preventDefault(); startRec().catch((err) => log(String(err))); }, { passive: false });
+btn.addEventListener('touchend', (e) => { e.preventDefault(); stopRec().catch((err) => log(String(err))); }, { passive: false });
+
+window.addEventListener('pagehide', () => { closeAllLanes(); });
+window.addEventListener('beforeunload', () => {
+  for (const lane of lanes) {
+    const sid = lane.session?.session_id;
+    if (!sid) continue;
+    try {
+      const x = new XMLHttpRequest();
+      x.open('DELETE', API + `/api/v1/sessions/${sid}`, false);
+      x.send(null);
+    } catch (e) {}
+  }
+});
+
+loadOptions().catch((e) => log('加载选项失败: ' + e));
+</script>
+</body>
+</html>

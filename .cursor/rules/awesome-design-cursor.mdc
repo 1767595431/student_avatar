@@ -1,0 +1,14 @@
+---
+description: Always follow the project's DESIGN.md
+alwaysApply: true
+---
+
+Before generating or modifying any UI:
+
+1. Read `/DESIGN.md`.
+2. Treat it as the single source of truth for all design decisions.
+3. Follow its guidance on colors, typography, spacing, layout, components, and animations.
+4. Reuse existing components and design tokens whenever possible.
+5. Do not introduce new visual styles unless explicitly requested or DESIGN.md allows it.
+
+After completing the task, verify that the result is consistent with DESIGN.md.

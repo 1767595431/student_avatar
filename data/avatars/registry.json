@@ -1,0 +1,22 @@
+{
+  "default_avatar_id": "avatar_001",
+  "default_version_id": "avv_001",
+  "default_voice_id": "avatar_voice_001",
+  "avatars": {
+    "avatar_001": {
+      "name": "avatar_001",
+      "voice_id": "avatar_voice_001",
+      "versions": [
+        "avv_001"
+      ]
+    },
+    "avatar_a34e2be8": {
+      "name": "smoke形象",
+      "voice_id": "avatar_voice_001",
+      "versions": [
+        "avv_001"
+      ]
+    }
+  },
+  "default_agent_id": "agent_default"
+}

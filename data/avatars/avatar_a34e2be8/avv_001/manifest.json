@@ -1,0 +1,16 @@
+{
+  "avatar_id": "avatar_a34e2be8",
+  "version_id": "avv_001",
+  "name": "smoke形象",
+  "voice_id": "avatar_voice_001",
+  "source": "avatar.mp4",
+  "fps": 25,
+  "width": 1280,
+  "height": 720,
+  "idle_frame": 3,
+  "talk_start": 21,
+  "talk_end": 149,
+  "transition_frames": 4,
+  "frame_count": 150,
+  "status": "ready"
+}

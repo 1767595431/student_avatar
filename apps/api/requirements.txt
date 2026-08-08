@@ -1,0 +1,17 @@
+# Business API — conda env: student_api
+fastapi==0.115.6
+uvicorn[standard]==0.30.0
+python-multipart==0.0.9
+pydantic==2.7.0
+pydantic-settings==2.15.0
+httpx==0.27.2
+websockets==12.0
+aiofiles==24.1.0
+numpy==1.26.4
+Pillow==10.4.0
+opencv-python-headless==4.10.0.84
+livekit==0.17.6
+livekit-api==0.7.1
+av==12.3.0
+python-dotenv==1.0.1
+sse-starlette==2.1.3

@@ -1,0 +1,64 @@
+# secrets & local env
+.env
+.env.*
+!.env.example
+
+# local caches / IDE bulk
+.cache/
+*.whl
+
+# cursor: keep shared rules, drop local junk
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# logs / runtime
+*.log
+data/temp/
+data/temp_audio/
+data/bench/
+data/nginx_public_ip.txt
+tts/data/*.log
+asr/data/*.log
+
+# agent registry holds real Dify API keys — never commit
+data/agents/
+
+# large / generated media
+data/avatars/**/frames/
+data/avatars/**/*.mp4
+data/avatars/uploads/
+data/avatars/**/avatar.mp4
+
+# TTS heavy deps & models (install via scripts)
+tts/models/
+tts/CosyVoice/
+**/modelscope_cache/
+tts/data/*.wav
+
+# LiveKit runtime keys file (use example instead)
+deploy/livekit/livekit.yaml
+
+# ssl private keys if ever copied into repo
+*.pem
+*.key
+!**/public*.pem
+/ssl/
+
+# ide / os
+.idea/
+.vscode/
+.DS_Store
+*.swp
+Thumbs.db

@@ -1,0 +1,17 @@
+# LiveKit SFU - MUST run via Docker (network_mode: host for WebRTC UDP)
+services:
+  livekit:
+    image: docker.m.daocloud.io/livekit/livekit-server:v1.8.4
+    container_name: student-livekit
+    # Official image also tagged locally after pull for clarity
+    # docker tag docker.m.daocloud.io/livekit/livekit-server:v1.8.4 livekit/livekit-server:v1.8.4
+    restart: unless-stopped
+    network_mode: host
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"

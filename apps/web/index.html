@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>学生端数字人 · P1</title>
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.7.5/dist/livekit-client.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222d;
+      --text: #e8eef5;
+      --muted: #8b9bb0;
+      --accent: #3d8bfd;
+      --ok: #3ecf8e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background: radial-gradient(1200px 600px at 20% -10%, #1c2a3f, var(--bg));
+      display: flex; flex-direction: column; align-items: center; padding: 24px;
+    }
+    h1 { font-weight: 600; letter-spacing: 0.02em; margin: 0 0 8px; }
+    .sub { color: var(--muted); margin-bottom: 20px; }
+    .stage {
+      position: relative; width: min(720px, 96vw); aspect-ratio: 16/9;
+      background: #000; border-radius: 12px; overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,.45);
+    }
+    .stage img, .stage video {
+      position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    }
+    .stage video { z-index: 2; }
+    .stage img { z-index: 1; }
+    .hud {
+      margin-top: 18px; width: min(720px, 96vw);
+      background: var(--panel); border-radius: 12px; padding: 16px 18px;
+    }
+    .status { font-size: 15px; margin-bottom: 8px; }
+    .status strong { color: var(--ok); }
+    .hint { color: var(--muted); font-size: 13px; margin-bottom: 12px; min-height: 1.2em; }
+    .said { color: #c9d6e8; font-size: 14px; margin-bottom: 10px; min-height: 1.2em; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+    select {
+      min-width: 140px; border: 1px solid #2a3545; border-radius: 8px;
+      background: #0f1520; color: var(--text); padding: 8px 10px;
+    }
+    button {
+      appearance: none; border: 0; border-radius: 10px; padding: 12px 20px;
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      background: var(--accent); color: white;
+      user-select: none; touch-action: none;
+    }
+    button.secondary { background: #334155; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button.recording { background: #c44; }
+    .log {
+      margin-top: 12px; max-height: 140px; overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px; color: var(--muted); white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>学生端数字人</h1>
+  <div class="sub">单路问答 · <a href="/concurrent" style="color:#7eb6ff">并发联调</a> · <a href="/admin" style="color:#7eb6ff">管理端</a></div>
+  <div class="stage">
+    <img id="idleImg" alt="idle" />
+    <video id="remoteVideo" autoplay playsinline></video>
+  </div>
+  <div class="hud">
+    <div class="status">状态：<strong id="state">请选择形象 / 音模 / 智能体</strong></div>
+    <div class="hint" id="hint">先选三项，再点「进入会话」或直接按住说话</div>
+    <div class="said" id="said"></div>
+    <div class="row" style="margin-bottom:12px;gap:10px;flex-wrap:wrap">
+      <label>形象
+        <select id="selAvatar"></select>
+      </label>
+      <label>音模
+        <select id="selVoice"></select>
+      </label>
+      <label>智能体
+        <select id="selAgent"></select>
+      </label>
+    </div>
+    <div class="row">
+      <button id="btnTalk">按住说话</button>
+      <button id="btnInterrupt" class="secondary" disabled>停止回答</button>
+      <button id="btnStart" class="secondary">进入会话</button>
+    </div>
+    <div class="log" id="log"></div>
+  </div>
+<script>
+const API = location.origin;
+let session = null;
+let room = null;
+let mediaRecorder = null;
+let chunks = [];
+let polling = null;
+let options = null;
+
+const $ = (id) => document.getElementById(id);
+const log = (m) => { const el=$('log'); el.textContent += m + '\n'; el.scrollTop = el.scrollHeight; };
+const setState = (s) => { $('state').textContent = s; };
+const setHint = (s) => { $('hint').textContent = s || ''; };
+const setSaid = (s) => { $('said').textContent = s ? ('你说：' + s) : ''; };
+
+function selectedPayload() {
+  const av = options.avatars.find(a => `${a.avatar_id}|${a.version_id}` === $('selAvatar').value);
+  if (!av) throw new Error('请选择形象');
+  const voice_id = $('selVoice').value;
+  const agent_id = $('selAgent').value;
+  if (!voice_id) throw new Error('请选择音模');
+  if (!agent_id) throw new Error('请选择智能体');
+  return {
+    student_id: 'student_001',
+    avatar_id: av.avatar_id,
+    avatar_version_id: av.version_id,
+    voice_id,
+    agent_id,
+  };
+}
+
+async function loadOptions() {
+  const r = await fetch(API + '/api/v1/options');
+  options = await r.json();
+  const sa = $('selAvatar');
+  const sv = $('selVoice');
+  const sg = $('selAgent');
+  sa.innerHTML = '';
+  sv.innerHTML = '';
+  sg.innerHTML = '';
+  for (const a of options.avatars || []) {
+    const o = document.createElement('option');
+    o.value = `${a.avatar_id}|${a.version_id}`;
+    o.textContent = `${a.name} (${a.avatar_id}/${a.version_id})`;
+    if (a.is_default) o.selected = true;
+    sa.appendChild(o);
+  }
+  for (const v of options.voices || []) {
+    const o = document.createElement('option');
+    o.value = v.voice_id;
+    o.textContent = `${v.name || v.voice_id}`;
+    if (v.is_default || v.voice_id === options.defaults?.voice_id) o.selected = true;
+    sv.appendChild(o);
+  }
+  for (const g of options.agents || []) {
+    const o = document.createElement('option');
+    o.value = g.agent_id;
+    o.textContent = `${g.name || g.agent_id}`;
+    if (g.is_default || g.agent_id === options.defaults?.agent_id) o.selected = true;
+    sg.appendChild(o);
+  }
+  // avatar change → prefer bound voice
+  sa.onchange = () => {
+    const av = options.avatars.find(a => `${a.avatar_id}|${a.version_id}` === sa.value);
+    if (av?.voice_id) {
+      const hit = [...sv.options].find(o => o.value === av.voice_id);
+      if (hit) sv.value = av.voice_id;
+    }
+  };
+  sa.onchange();
+  if (!(options.avatars || []).length) { setState('无可用形象'); setHint('请先到管理端上传形象'); }
+  else if (!(options.agents || []).length) { setState('无智能体'); setHint('请先到管理端添加 Dify API Key'); }
+  else { setState('待机'); setHint('先选三项，再点「进入会话」或直接按住说话'); }
+}
+
+async function createSession() {
+  setState('创建会话…');
+  setHint('');
+  const body = selectedPayload();
+  const res = await fetch(API + '/api/v1/sessions', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(await res.text());
+  session = await res.json();
+  $('idleImg').src = API + session.idle_image_url;
+  $('remoteVideo').style.opacity = 0;
+  setState('待机');
+  setHint(`形象 ${session.avatar_id} · 音模 ${session.voice_id} · 智能体 ${session.agent_name || session.agent_id}`);
+  setSaid('');
+  log(`session=${session.session_id}`);
+  $('btnTalk').disabled = false;
+  $('btnInterrupt').disabled = false;
+}
+
+async function leaveLiveKit() {
+  if (!room) return;
+  try { await room.disconnect(); } catch (e) {}
+  room = null;
+  const v = $('remoteVideo');
+  if (v) { v.srcObject = null; v.style.opacity = 0; }
+  document.querySelectorAll('audio[data-lk-audio="1"]').forEach((a) => {
+    try { a.srcObject = null; a.remove(); } catch (e) {}
+  });
+}
+
+async function ensureMedia() {
+  const res = await fetch(API + `/api/v1/sessions/${session.session_id}/media/ensure`, { method:'POST' });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  session.livekit_token = data.livekit_token;
+  session.livekit_url = browserLivekitUrl(data.livekit_url);
+  session._media_state = data.media_state;
+  // 回收后 room 已被 leave；此处只在无连接时进房
+  await joinLiveKit();
+}
+
+function browserLivekitUrl(url) {
+  try {
+    const http = url.replace(/^ws/i, 'http');
+    const u = new URL(http);
+    u.hostname = location.hostname;
+    if (location.protocol === 'https:') {
+      u.port = '7443';
+      return `wss://${u.host}`;
+    }
+    if (!u.port) u.port = '7880';
+    return `ws://${u.host}`;
+  } catch (e) {
+    return url;
+  }
+}
+
+async function joinLiveKit() {
+  const LK = window.LivekitClient;
+  if (room) {
+    try {
+      const connected = LK.ConnectionState
+        ? room.state === LK.ConnectionState.Connected
+        : !!room.localParticipant;
+      if (connected) return;
+    } catch (e) {}
+    await leaveLiveKit();
+  }
+  room = new LK.Room();
+  room.on(LK.RoomEvent.TrackSubscribed, (track) => {
+    if (track.kind === 'video') {
+      track.attach($('remoteVideo'));
+      $('remoteVideo').style.opacity = 1;
+      log('subscribed video');
+    } else if (track.kind === 'audio') {
+      const a = track.attach();
+      a.autoplay = true;
+      a.dataset.lkAudio = '1';
+      document.body.appendChild(a);
+      log('subscribed audio');
+    }
+  });
+  room.on(LK.RoomEvent.Disconnected, () => {
+    log('livekit disconnected');
+    room = null;
+    $('remoteVideo').style.opacity = 0;
+  });
+  await room.connect(session.livekit_url, session.livekit_token);
+  log('livekit connected');
+}
+
+function startPoll() {
+  if (polling) return;
+  polling = setInterval(async () => {
+    if (!session) return;
+    try {
+      const r = await fetch(API + `/api/v1/sessions/${session.session_id}`);
+      const j = await r.json();
+      session._state = j.state;
+      const map = {
+        idle: '待机', recognizing: '正在识别…', thinking: '正在思考…',
+        speaking: '数字人讲话中', interrupting: '打断中', closed: '已关闭'
+      };
+      setState(map[j.state] || j.state);
+      if (j.state === 'idle') setHint('按住说话提问；讲话中可点「停止回答」');
+      if (j.state === 'recognizing') setHint('正在把录音转成文字…');
+      if (j.state === 'thinking') setHint('智能体生成回答，随后合成语音…');
+      if (j.state === 'speaking') setHint('数字人回答中，可点停止或再次按住打断');
+      if (j.recognized_text) setSaid(j.recognized_text);
+      const canInterrupt = ['thinking', 'speaking', 'recognizing'].includes(j.state);
+      $('btnInterrupt').disabled = !canInterrupt;
+      // 服务端 idle 回收后清本地 Room，下次 ensure 会重连
+      if (j.media_state === 'CLOSED' && room) {
+        leaveLiveKit().catch(() => {});
+        setHint('媒体已回收，下次说话会自动重连');
+      }
+      session._media_state = j.media_state;
+    } catch (e) {}
+  }, 400);
+}
+
+async function doInterrupt() {
+  if (!session) return;
+  $('btnInterrupt').disabled = true;
+  const res = await fetch(API + `/api/v1/sessions/${session.session_id}/interrupt`, { method:'POST' });
+  const j = await res.json().catch(() => ({}));
+  log('interrupt gen=' + (j.generation ?? '?') + ' state=' + (j.state || ''));
+  setState('已打断 / 待机');
+}
+
+async function startRec() {
+  if (!session) await createSession();
+  if (session._state && ['thinking', 'speaking'].includes(session._state)) {
+    await doInterrupt().catch(() => {});
+  }
+  setState('录音中…');
+  setHint('松开后开始识别');
+  $('btnTalk').classList.add('recording');
+  let mediaOk = false;
+  const ensureP = ensureMedia()
+    .then(() => { mediaOk = true; })
+    .catch((e) => { log('ensureMedia: ' + e); mediaOk = false; });
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  chunks = [];
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  mediaRecorder.start();
+  await ensureP;
+  session._mediaOk = mediaOk;
+  if (!mediaOk) {
+    setHint('媒体未就绪，松开后将重试进房');
+  }
+  startPoll();
+}
+
+async function stopRec() {
+  if (!mediaRecorder) return;
+  $('btnTalk').classList.remove('recording');
+  setState('上传中…');
+  setHint('上传录音…');
+  await new Promise((resolve) => {
+    mediaRecorder.onstop = resolve;
+    mediaRecorder.stop();
+    mediaRecorder.stream.getTracks().forEach(t => t.stop());
+  });
+  if (!session._mediaOk || !room) {
+    try {
+      await ensureMedia();
+      session._mediaOk = true;
+    } catch (e) {
+      log('ensureMedia retry: ' + e);
+      setState('错误');
+      setHint('推流未就绪，请重试说话');
+      return;
+    }
+  }
+  const blob = new Blob(chunks, { type: 'audio/webm' });
+  const fd = new FormData();
+  fd.append('audio', blob, 'q.webm');
+  const res = await fetch(API + `/api/v1/sessions/${session.session_id}/questions`, {
+    method: 'POST', body: fd
+  });
+  const j = await res.json();
+  if (!res.ok) { log(JSON.stringify(j)); setState('错误'); setHint('提交失败'); return; }
+  setSaid(j.recognized_text || '');
+  log('识别: ' + j.recognized_text);
+  setState('正在思考…');
+  setHint('智能体生成回答…');
+  $('btnInterrupt').disabled = false;
+}
+
+$('btnStart').onclick = () => createSession().catch(e => { log(String(e)); setState('错误'); });
+const btn = $('btnTalk');
+btn.addEventListener('mousedown', (e) => { e.preventDefault(); startRec().catch(err => log(String(err))); });
+btn.addEventListener('mouseup', (e) => { e.preventDefault(); stopRec().catch(err => log(String(err))); });
+btn.addEventListener('mouseleave', () => { if (mediaRecorder && mediaRecorder.state === 'recording') stopRec().catch(()=>{}); });
+btn.addEventListener('touchstart', (e) => { e.preventDefault(); startRec().catch(err => log(String(err))); }, {passive:false});
+btn.addEventListener('touchend', (e) => { e.preventDefault(); stopRec().catch(err => log(String(err))); }, {passive:false});
+$('btnInterrupt').onclick = () => doInterrupt().catch(e => log(String(e)));
+$('btnTalk').disabled = true;
+$('btnInterrupt').disabled = true;
+
+async function closeSessionQuiet() {
+  if (!session?.session_id) return;
+  const sid = session.session_id;
+  await leaveLiveKit().catch(() => {});
+  try { await fetch(API + `/api/v1/sessions/${sid}`, { method: 'DELETE', keepalive: true }); } catch (e) {}
+  session = null;
+}
+
+window.addEventListener('pagehide', () => { closeSessionQuiet(); });
+window.addEventListener('beforeunload', () => {
+  if (!session?.session_id) return;
+  try {
+    const x = new XMLHttpRequest();
+    x.open('DELETE', API + `/api/v1/sessions/${session.session_id}`, false);
+    x.send(null);
+  } catch (e) {}
+});
+
+loadOptions().catch(e => { log(String(e)); setState('加载选项失败'); });
+</script>
+</body>
+</html>

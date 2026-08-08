@@ -1,0 +1,26 @@
+# LiveKit server config template — copy to livekit.yaml and fill keys.
+# Real livekit.yaml is gitignored (contains API secrets).
+
+port: 7880
+bind_addresses:
+  - ""
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: true
+
+redis: {}
+
+keys:
+  # LIVEKIT_API_KEY: LIVEKIT_API_SECRET  (must match project .env)
+  APIchange-me: change-me-secret
+
+logging:
+  level: info
+
+room:
+  auto_create: true
+  empty_timeout: 300
+  departure_timeout: 20

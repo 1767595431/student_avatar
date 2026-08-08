@@ -1,0 +1,7 @@
+{
+  "voice_id": "avatar_voice_001",
+  "name": "默认音模",
+  "prompt_text": "希望你以后能够做的比我还好呦。",
+  "prompt_wav": "/home/ubuntu/AI/student_avatar/data/voices/avatar_voice_001/prompt.wav",
+  "created_at": 1786220775
+}
