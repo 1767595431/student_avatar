@@ -112,11 +112,13 @@ const syncIdleUi = (hint) => {
   setHint(hint || '按住说话提问');
   $('btnInterrupt').disabled = true;
   $('btnTalk').classList.remove('recording');
-  setLiveTalk(false);
+  // 会话内已锁 WebRTC：待机也走推流，禁止回切本地 idle（避免清晰↔模糊来回跳）
+  if (!liveLocked) setLiveTalk(false);
 };
 
 let wantLiveTalk = false;
 let liveTalkTimer = null;
+let liveLocked = false; // 本会话已订阅过远端视频后锁定推流层
 
 function remoteVideoReady() {
   const v = $('remoteVideo');
@@ -125,7 +127,8 @@ function remoteVideoReady() {
 
 function setLiveTalk(on) {
   // on=true：显示 WebRTC（Publisher 负责待机正倒放 / 动嘴正倒放）
-  // 不再只在 speaking 才切——否则本地 idle.mp4 会一直盖住动嘴推流
+  // 会话锁定后禁止回切本地 idle.mp4（清晰度两套来源）
+  if (!on && liveLocked && session) return;
   wantLiveTalk = !!on;
   if (liveTalkTimer) {
     clearTimeout(liveTalkTimer);
@@ -265,6 +268,7 @@ async function createSession() {
   });
   if (!res.ok) throw new Error(await res.text());
   session = await res.json();
+  liveLocked = false;
   setIdleVideo(session.idle_video_url || session.idle_image_url);
   $('stage').classList.add('has-idle');
   setLiveTalk(false);
@@ -276,6 +280,8 @@ async function createSession() {
   log(`session=${session.session_id}`);
   setSessionChrome(true);
   startPoll(); // 心跳+状态同步；勿等录音结束才开轮询
+  // 进房即暖推流：本地 idle 只作占位，订阅成功后锁定 WebRTC
+  ensureMedia().catch((e) => log('ensureMedia warm: ' + e));
 }
 
 /** 有会话才允许说话/结束；未进会话强制禁用 */
@@ -363,6 +369,7 @@ async function joinLiveKit() {
       el.autoplay = true;
       el.play().catch(() => {});
       log('subscribed video');
+      liveLocked = true;
       setLiveTalk(true);
     } else if (track.kind === 'audio') {
       const a = track.attach();
@@ -375,7 +382,13 @@ async function joinLiveKit() {
   room.on(LK.RoomEvent.Disconnected, () => {
     log('livekit disconnected');
     room = null;
-    setLiveTalk(false);
+    if (session) {
+      // 保持推流层，会话未结束则重连暖机
+      ensureMedia().catch((e) => log('ensureMedia after disconnect: ' + e));
+    } else {
+      liveLocked = false;
+      setLiveTalk(false);
+    }
   });
   await room.connect(session.livekit_url, session.livekit_token);
   log('livekit connected');
@@ -392,6 +405,7 @@ async function joinLiveKit() {
           el.style.removeProperty('opacity');
           el.muted = true;
           el.play().catch(() => {});
+          liveLocked = true;
           setLiveTalk(true);
         }
       });
@@ -409,6 +423,8 @@ function startPoll() {
         setState('已失效', 'err');
         setHint('会话已结束，请重新进入会话');
         session = null;
+        liveLocked = false;
+        setLiveTalk(false);
         setSessionChrome(false);
         stopPoll();
         return;
@@ -443,22 +459,8 @@ function startPoll() {
       const canInterrupt = ['thinking', 'speaking', 'recognizing'].includes(j.state);
       $('btnInterrupt').disabled = !canInterrupt;
       if (j.state === 'idle') $('btnTalk').classList.remove('recording');
-      const needMedia = ['recognizing', 'thinking', 'speaking'].includes(j.state);
-      // 有 WebRTC 画面就始终显示推流（含待机帧）；动嘴只靠 Publisher start_talking
-      if (j.media_state === 'CLOSED') {
-        if (needMedia) {
-          if (!session._reensuring) {
-            session._reensuring = true;
-            ensureMedia()
-              .catch((e) => log('ensureMedia pipeline: ' + e))
-              .finally(() => { if (session) session._reensuring = false; });
-          }
-        } else if (room) {
-          leaveLiveKit().catch(() => {});
-          setLiveTalk(false);
-          setHint('媒体已回收，下次自动重连');
-        }
-      } else if (!room) {
+      // 会话内固定 WebRTC：媒体被回收也立刻 ensure 暖推流，绝不 leave → 回切本地 idle
+      if (j.media_state === 'CLOSED' || !room) {
         if (!session._reensuring) {
           session._reensuring = true;
           ensureMedia()
@@ -466,6 +468,7 @@ function startPoll() {
             .finally(() => { if (session) session._reensuring = false; });
         }
       } else if (remoteVideoReady()) {
+        liveLocked = true;
         setLiveTalk(true);
       }
       // room 已在但画面未到：等 TrackSubscribed，禁止轮询里反复重连
@@ -758,7 +761,9 @@ async function endSession(opts) {
   }
   stopPoll();
   killSessionOnServer(sid);
+  liveLocked = false;
   await leaveLiveKit().catch(() => {});
+  setLiveTalk(false);
   clearIdleVideo();
   $('stage').classList.remove('has-idle', 'live-talk');
   $('remoteVideo').srcObject = null;

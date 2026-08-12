@@ -171,7 +171,7 @@ app = FastAPI(
     version="1.0.0",
     description=(
         "课堂数字人业务接口：浏览器录音 → ASR → Dify → TTS → LiveKit 推流。\n\n"
-        "中文接口说明书：仓库 `docs/api.md`。"
+        "中文接口说明书：仓库 `docs/学生端实时数字人接口文档.md`。"
     ),
     lifespan=lifespan,
     openapi_tags=OPENAPI_TAGS,

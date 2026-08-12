@@ -18,6 +18,23 @@ from frame_clock import FrameClock
 logger = logging.getLogger("publisher.core")
 
 
+def video_publish_options(width: int, height: int) -> rtc.TrackPublishOptions:
+    """竖屏数字人：抬高码率上限 + 保分辨率，减轻开讲前几秒糊→清爬升。"""
+    px = max(1, width * height)
+    # 1080x1896 ≈ 12Mbps；floor 6Mbps，避免 BWE 从 ~300kbps 慢爬
+    max_br = min(12_000_000, max(6_000_000, int(6_000_000 * px / (1280 * 720))))
+    kwargs: dict = {
+        # screenshare 语义：优先保分辨率（摄像头默认偏保帧率会先降清）
+        "source": rtc.TrackSource.SOURCE_SCREENSHARE,
+        "video_encoding": rtc.VideoEncoding(max_bitrate=max_br, max_framerate=25),
+        "simulcast": False,
+    }
+    dp = getattr(rtc, "DegradationPreference", None)
+    if dp is not None:
+        kwargs["degradation_preference"] = dp.MAINTAIN_RESOLUTION
+    return rtc.TrackPublishOptions(**kwargs)
+
+
 class SessionPublisher:
     def __init__(
         self,
@@ -82,19 +99,20 @@ class SessionPublisher:
         self._audio_source = rtc.AudioSource(self.sample_rate, 1)
         self._video_track = rtc.LocalVideoTrack.create_video_track("avatar", self._video_source)
         self._audio_track = rtc.LocalAudioTrack.create_audio_track("voice", self._audio_source)
-        # 原分辨率最高可到 1080p；码率按像素抬一点，关 simulcast 避免多层降清
-        px = max(1, w * h)
-        max_br = min(8_000_000, max(3_500_000, int(3_500_000 * px / (1280 * 720))))
-        vopts = rtc.TrackPublishOptions(
-            source=rtc.TrackSource.SOURCE_CAMERA,
-            video_encoding=rtc.VideoEncoding(max_bitrate=max_br, max_framerate=25),
-            simulcast=False,
-        )
+        vopts = video_publish_options(w, h)
+        max_br = int(vopts.video_encoding.max_bitrate) if vopts.video_encoding else 0
         await self.room.local_participant.publish_track(self._video_track, vopts)
         await self.room.local_participant.publish_track(self._audio_track)
         self._running = True
         self._loop_task = asyncio.create_task(self._media_loop())
-        logger.info("Publisher started session=%s room=%s", self.session_id, self.room_name)
+        logger.info(
+            "Publisher started session=%s room=%s size=%sx%s bitrate=%s",
+            self.session_id,
+            self.room_name,
+            w,
+            h,
+            max_br,
+        )
 
     async def stop(self) -> None:
         self._running = False

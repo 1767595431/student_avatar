@@ -17,19 +17,17 @@
 
 | 文档 | 何时看 |
 |------|--------|
-| [`docs/api.md`](docs/api.md) | **业务 API 中文说明书**（与 `/docs` 一致） |
-| [`docs/p1-runbook.md`](docs/p1-runbook.md) | 单路闭环日常启停与联调清单 |
+| [`docs/学生端实时数字人接口文档.md`](docs/学生端实时数字人接口文档.md) | **业务 API 中文说明书**（与 `/docs` 一致） |
+| 本 README「日常启动 / 停止」「调试」 | 启停顺序、单路闭环、打断冒烟 |
 | [`docs/livekit-deploy.md`](docs/livekit-deploy.md) | LiveKit Docker 安装、密钥、端口、排障 |
 | [`docs/nginx-https.md`](docs/nginx-https.md) | 远程 HTTPS / WSS（443、7443） |
-| [`docs/p2-interrupt.md`](docs/p2-interrupt.md) | 打断状态机与验收 |
-| [`docs/p3-bench.md`](docs/p3-bench.md) | 历史压测方法与结果 |
 | [`tts_qwen/README.md`](tts_qwen/README.md) | TTS 环境安装、启停、踩坑、压测命令 |
-| [`docs/qwen3-tts-vllm-flash-attn验证报告.md`](docs/qwen3-tts-vllm-flash-attn验证报告.md) | FLASH_ATTN / 驱动 580 / 双卡并发结论 |
+| [`docs/qwen3-tts-vllm-flash-attn验证报告.md`](docs/qwen3-tts-vllm-flash-attn验证报告.md) | FLASH_ATTN / 驱动 580 / 双卡并发与压测结论 |
 | [`docs/dify-通义千问并发空回答说明.md`](docs/dify-通义千问并发空回答说明.md) | 「智能体无有效回答」根因（通义配额，非本地 TTS） |
 | [`asr/README.md`](asr/README.md) | ASR 端口与接口 |
 | [`DESIGN.md`](DESIGN.md) | 前端唯一主题（`apps/web/`） |
-| [`学生端_Qwen3-TTS-0.6B-Base_vLLM-Omni多并发流式开发方案.md`](学生端_Qwen3-TTS-0.6B-Base_vLLM-Omni多并发流式开发方案.md) | TTS 方案设计全文 |
-| [`学生端开发需求与技术方案_v10.md`](学生端开发需求与技术方案_v10.md) | 产品与技术方案总册 |
+| [`docs/学生端_Qwen3-TTS-0.6B-Base_vLLM-Omni多并发流式开发方案.md`](docs/学生端_Qwen3-TTS-0.6B-Base_vLLM-Omni多并发流式开发方案.md) | TTS 方案设计全文 |
+| [`docs/学生端开发需求与技术方案_v10.md`](docs/学生端开发需求与技术方案_v10.md) | 产品与技术方案总册 |
 | [`ChatGPT分析的.md`](ChatGPT分析的.md) | 双卡 vLLM 拓扑分析备忘 |
 
 ---
@@ -131,13 +129,34 @@ cp -n .env.example .env
 
 `.env` **只放密钥与可选覆盖**；ASR/TTS 端口、默认形象/音模在代码或管理端，不要往 `.env` 堆。
 
-### 3. conda：业务 API
+### 3. conda：业务 API（含 Publisher / LiveKit Python SDK）
 
 ```bash
 conda create -y -n student_api python=3.11
 conda activate student_api
 pip install -r apps/api/requirements.txt
 ```
+
+`apps/api/requirements.txt` 里与 LiveKit **必须**对齐的版本（勿擅自降回）：
+
+| 包 | 版本 | 作用 |
+|----|------|------|
+| `livekit` | **1.1.14** | Publisher 推流（含起始码率提示，减轻开讲前几秒糊→清） |
+| `livekit-api` | **1.0.7** | 签发 AccessToken |
+
+自检推流参数：
+
+```bash
+conda activate student_api
+python apps/publisher/check_video_publish_opts.py
+# 期望：bitrate≈12Mbps、source=screenshare、degradation=MAINTAIN_RESOLUTION
+```
+
+画面策略摘要（详解 [`docs/livekit-deploy.md`](docs/livekit-deploy.md) §8）：
+
+- Publisher：竖屏按像素抬码率（上限 **12 Mbps**）、`SOURCE_SCREENSHARE`、`MAINTAIN_RESOLUTION`、关 simulcast  
+- 学生端：进会话即暖推流，**锁定 WebRTC**，会话内不回切本地 idle（避免清晰↔模糊来回跳）  
+- 改 SDK / 推流参数后须 **重启 API**，并让浏览器 **结束旧会话再进**
 
 ### 4. conda：ASR
 
@@ -161,14 +180,22 @@ bash tts_qwen/scripts/download_models.sh    # 权重先落盘，启动时勿再�
 
 完整步骤与踩坑：[`tts_qwen/README.md`](tts_qwen/README.md)。
 
-### 6. LiveKit（Docker）
+### 6. LiveKit（Docker SFU + Python SDK）
+
+**两层都要装齐**，缺一不可：
+
+| 层 | 怎么装 | 文档 |
+|----|--------|------|
+| SFU 服务端 | Docker Compose（`deploy/livekit/`） | 本节 + [`docs/livekit-deploy.md`](docs/livekit-deploy.md) |
+| Python SDK | conda `student_api` 的 `livekit` / `livekit-api`（见上文 §3） | 同左 |
 
 ```bash
 cd deploy/livekit && bash start.sh
+# 或由根目录 start_api.sh 在 TTS/ASR 就绪后自动拉起
 curl -s http://127.0.0.1:7880/    # 期望 OK
 ```
 
-详解：[`docs/livekit-deploy.md`](docs/livekit-deploy.md)。
+详解（端口、密钥、推流画质、排障）：[`docs/livekit-deploy.md`](docs/livekit-deploy.md)。
 
 ### 7. 远程 HTTPS（可选，远程浏览器必做）
 
@@ -253,15 +280,13 @@ curl -s http://127.0.0.1:7880/
 接口文档：
 
 - 交互式（中文接口名）：`http://127.0.0.1:8000/docs`
-- 说明书：[`docs/api.md`](docs/api.md)
+- 说明书：[`docs/学生端实时数字人接口文档.md`](docs/学生端实时数字人接口文档.md)
 
 总控页 `/monitor`：看会话占用、**ASR / TTS 真实槽位**、Dify **仅活跃+峰值**、各后端 **UP/DOWN**。
 
 ### 单路闭环清单
 
-见 [`docs/p1-runbook.md`](docs/p1-runbook.md)：
-
-1. `GET /health` → ok  
+1. `GET /api/v1/health` → ok  
 2. 管理端有默认形象 / 音模 / 智能体  
 3. 学生端进会话 → ensure → LiveKit 订阅音视频  
 4. 按住说话 → 识别文本 → 讲话中画面与声音  
@@ -273,15 +298,13 @@ curl -s http://127.0.0.1:7880/
 bash apps/api/scripts/smoke_interrupt.sh
 ```
 
-页面与状态机：[`docs/p2-interrupt.md`](docs/p2-interrupt.md)。
-
 ### TTS 压测（直打引擎）
 
 ```bash
 python tts_qwen/scripts/bench_vllm_speech.py --dual --ladder 2,4,8,12,16 --stream
 ```
 
-更多：[`tts_qwen/README.md`](tts_qwen/README.md)、[`docs/p3-bench.md`](docs/p3-bench.md)、[`docs/qwen3-tts-vllm-flash-attn验证报告.md`](docs/qwen3-tts-vllm-flash-attn验证报告.md)。
+更多：[`tts_qwen/README.md`](tts_qwen/README.md)、[`docs/qwen3-tts-vllm-flash-attn验证报告.md`](docs/qwen3-tts-vllm-flash-attn验证报告.md)。
 
 ### ASR 冒烟
 
@@ -300,7 +323,9 @@ bash asr/scripts/smoke_test.sh
 | TTS 起不来 / 音质差 | 驱动、FLASH vs TRITON、HF 缓存 | [`tts_qwen/README.md`](tts_qwen/README.md)、验证报告 |
 | 识别出字但「智能体无有效回答」 | **Dify/通义并发配额**，不是本地 TTS | [`docs/dify-通义千问并发空回答说明.md`](docs/dify-通义千问并发空回答说明.md) |
 | 画面糊、切换讲话更糊 | 形象包分辨率；须重导后再**新开会话** | 管理端重传 / `avatar_preprocess`（原分辨率≤1080p） |
-| 打断不停 | generation / cancel | [`docs/p2-interrupt.md`](docs/p2-interrupt.md) |
+| 清晰↔模糊来回跳 | 是否回切本地 idle；须锁定 WebRTC | [`docs/livekit-deploy.md`](docs/livekit-deploy.md) §8；强刷学生页 |
+| 开讲前几秒偏糊再变清 | WebRTC 码率爬升；确认 SDK≥1.1.14 + 12Mbps 推流 | `pip show livekit`；`check_video_publish_opts.py`；**新开会话** |
+| 打断不停 | generation / cancel | `bash apps/api/scripts/smoke_interrupt.sh` |
 
 ---
 

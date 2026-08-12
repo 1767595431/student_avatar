@@ -118,4 +118,68 @@ WebRTC 需要大范围 UDP 端口。Docker bridge NAT 对媒体端口不友好�
 
 ## 7. 版本
 
-当前 compose 固定镜像：`livekit/livekit-server:v1.8.4`。升级时只改镜像 tag 并 `docker compose pull && docker compose up -d`。
+| 组件 | 版本 | 备注 |
+|------|------|------|
+| LiveKit Server（Docker） | `livekit/livekit-server:v1.8.4` | compose 固定 tag；升级只改 tag 后 `pull && up -d` |
+| Python `livekit` | **1.1.14** | `apps/api/requirements.txt`；Publisher 用 |
+| Python `livekit-api` | **1.0.7** | 签发 Token；与 `livekit` 一起装进 `student_api` |
+
+**不要**把 `livekit` 降回 `0.17.x`：旧版缺少起始码率 / `degradation_preference`，开讲更容易「先糊后清」。
+
+升级 Server：
+
+```bash
+# 只改 docker-compose.yml 镜像 tag 后：
+cd /home/ubuntu/AI/student_avatar/deploy/livekit
+docker compose pull && docker compose up -d
+```
+
+升级 Python SDK（在仓库根目录）：
+
+```bash
+conda activate student_api
+pip install -r apps/api/requirements.txt
+# 然后重启主服务，旧会话作废重进
+bash stop_api.sh && bash start_api.sh
+```
+
+## 8. 推流画质（Publisher + 学生端）
+
+数字人画面走 **一条 WebRTC 视频轨**。安装/联调时注意：
+
+### 8.1 Publisher（`apps/publisher/publisher.py`）
+
+安装 `student_api` 依赖后，推流默认：
+
+| 项 | 值 | 原因 |
+|----|----|------|
+| `max_bitrate` | 按像素缩放，**上限 12 Mbps**（1080×1896 打满） | 竖屏像素多，低码率会糊 |
+| `max_framerate` | 25 | 与形象包 fps 一致 |
+| `simulcast` | `false` | 避免订到低清层 |
+| `source` | `SOURCE_SCREENSHARE` | 拥堵时优先保分辨率（非摄像头跟手） |
+| `degradation_preference` | `MAINTAIN_RESOLUTION` | 同上；需 `livekit≥1.1` |
+
+自检（无需连房）：
+
+```bash
+conda activate student_api
+python apps/publisher/check_video_publish_opts.py
+```
+
+改参数或升级 SDK 后：**重启 API**，浏览器 **结束会话再进入**（旧 Publisher 进程仍是旧编码参数）。
+
+### 8.2 学生端页面（`apps/web/index.html`）
+
+- 进入会话后立刻 `ensure` 暖推流；订阅到视频后 **锁定 WebRTC 层**  
+- 会话内 **不回切** 本地 `idle.mp4`（本地片更清晰，来回切会「一会儿清一会儿糊」）  
+- 本地 idle 仅作进房前占位  
+
+并发页 `concurrent.html` 同样：媒体回收后立刻重连暖推流，不把画面藏掉。
+
+### 8.3 现象对照
+
+| 现象 | 是否正常 | 处理 |
+|------|----------|------|
+| 会话内清晰↔模糊来回跳 | 否 | 确认已部署 §8.2；强刷页面；新开会话 |
+| 开讲前 1–几秒偏软再变清 | 码率爬升，减轻后仍可能有极短收敛 | 确认 §7 SDK 版本 + §8.1；局域网差时更明显 |
+| 整体始终偏糊 | 否 | 形象是否 ≤1080p 原分辨率包；码率/SDK；新开会话 |

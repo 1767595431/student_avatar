@@ -10,8 +10,8 @@ aiofiles==24.1.0
 numpy==1.26.4
 Pillow==10.4.0
 opencv-python-headless==4.10.0.84
-livekit==0.17.6
-livekit-api==0.7.1
+livekit==1.1.14
+livekit-api==1.0.7
 av==12.3.0
 python-dotenv==1.0.1
 sse-starlette==2.1.3

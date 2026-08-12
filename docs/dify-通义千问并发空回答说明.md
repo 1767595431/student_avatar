@@ -112,4 +112,4 @@ speaking start ... qa_to_speak_ms≈3s
 
 - TTS 验证：[`qwen3-tts-vllm-flash-attn验证报告.md`](./qwen3-tts-vllm-flash-attn验证报告.md)  
 - 部署依据：仓库根目录 `ChatGPT分析的.md`  
-- 运行手册：[`p1-runbook.md`](./p1-runbook.md)
+- 启停 / 联调：仓库根目录 [`README.md`](../README.md)

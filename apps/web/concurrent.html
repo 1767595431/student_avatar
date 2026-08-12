@@ -422,23 +422,15 @@ function startPoll() {
         if (j.qa_to_speak_ms > 0) setLaneLatency(lane, j.qa_to_speak_ms);
         else if (['recognizing', 'thinking'].includes(j.state)) setLaneLatency(lane, 0);
 
-        const needMedia = ['recognizing', 'thinking', 'speaking'].includes(j.state);
-        if (needMedia && (j.media_state === 'CLOSED' || !lane.room)) {
-          // 暖待机被回收后答题/讲话必须重连，否则有声无画
+        // 会话内固定 WebRTC：回收后立刻重连暖推流，不把画面藏掉（避免清晰度来回跳）
+        if (j.media_state === 'CLOSED' || !lane.room) {
           if (!lane._reensuring) {
             lane._reensuring = true;
             reensureLane(lane)
-              .then(() => log(`#${lane.i + 1} 媒体重连`))
+              .then(() => log(`#${lane.i + 1} 媒体暖连`))
               .catch((e) => log(`#${lane.i + 1} 重连失败 ${e}`))
               .finally(() => { lane._reensuring = false; });
           }
-        } else if (j.media_state === 'CLOSED' && lane.room && !needMedia) {
-          try { await lane.room.disconnect(); } catch (e) {}
-          lane.room = null;
-          lane.els.vid.style.opacity = 0;
-          if (lane.els.audioBox) lane.els.audioBox.innerHTML = '';
-          if (lane.audioEls) lane.audioEls.length = 0;
-          lane._media_closed = true;
         }
       } catch (e) {}
     }));
