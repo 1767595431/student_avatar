@@ -1,14 +1,13 @@
 ---
-description: Always follow the project's DESIGN.md
+description: Always follow apps/web design system for any UI work
 alwaysApply: true
 ---
 
 Before generating or modifying any UI:
 
-1. Read `/DESIGN.md`.
-2. Treat it as the single source of truth for all design decisions.
-3. Follow its guidance on colors, typography, spacing, layout, components, and animations.
-4. Reuse existing components and design tokens whenever possible.
-5. Do not introduce new visual styles unless explicitly requested or DESIGN.md allows it.
+1. Read `DESIGN.md` and treat `apps/web/` as the only frontend (css/common.css, css/app.css, the three HTML pages).
+2. Follow its guidance on colors, typography, spacing, layout, components, and animations.
+3. Reuse existing components and design tokens whenever possible.
+4. Do not introduce a second theme or create another frontend directory.
 
-After completing the task, verify that the result is consistent with DESIGN.md.
+After completing the task, verify the result matches the dark glass look in `apps/web`.

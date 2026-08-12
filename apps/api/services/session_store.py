@@ -43,11 +43,18 @@ class Session:
     current_question_id: Optional[str] = None
     current_tts_request_id: Optional[str] = None
     recognized_text: str = ""
+    # 前端提示用："" | dify | tts | speaking（thinking 态下区分卡在哪）
+    pipeline_stage: str = ""
+    last_error: str = ""
     generation: int = 0
     room_name: str = ""
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     last_media_activity_at: float = field(default_factory=time.time)
+    # 本轮问答：提交问题 → 开始播报
+    turn_started_at: float = 0.0
+    speak_started_at: float = 0.0
+    qa_to_speak_ms: int = 0
     cancel_event: Any = None  # asyncio.Event set at runtime
 
     def touch(self) -> None:
@@ -93,6 +100,9 @@ class SessionStore:
 
     def all(self) -> list[Session]:
         return list(self._sessions.values())
+
+    def count(self) -> int:
+        return len(self._sessions)
 
 
 store = SessionStore()

@@ -145,7 +145,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--tts-urls",
-        default="ws://127.0.0.1:8200/internal/tts/stream,ws://127.0.0.1:8201/internal/tts/stream",
+        default="ws://127.0.0.1:8300/internal/tts/stream,ws://127.0.0.1:8301/internal/tts/stream",
     )
     ap.add_argument("--text", default=TEXT)
     ap.add_argument("--ladder", default="1,2,4", help="comma concurrency steps")

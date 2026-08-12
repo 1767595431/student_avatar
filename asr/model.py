@@ -45,7 +45,8 @@ class ASREngine:
         self._model = AutoModel(
             model=settings.asr_model,
             vad_model=settings.vad_model,
-            vad_kwargs={"max_single_segment_time": 60000},
+            # 与 68M 单段 ≤20s 对齐
+            vad_kwargs={"max_single_segment_time": 20000},
             punc_model=settings.punc_model,
             device=settings.device,
             disable_update=True,

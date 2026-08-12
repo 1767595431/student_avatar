@@ -11,15 +11,15 @@ class Settings(BaseSettings):
     port: int = 8100
     device: str = "cuda:0"
 
-    # FunASR models (ModelScope short names or local paths)
-    asr_model: str = "paraformer-zh"
+    # FunASR Paraformer 68M（单段 ≤20s）；非 paraformer-zh(220M large)
+    asr_model: str = "iic/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8358-tensorflow1"
     vad_model: str = "fsmn-vad"
     punc_model: str = "ct-punc"
 
-    # Audio limits (ms / seconds)
+    # Audio limits (ms / seconds) — 模型硬限 20s
     min_duration_ms: int = 300
-    max_duration_s: int = 120
-    suggest_max_duration_s: int = 60
+    max_duration_s: int = 20
+    suggest_max_duration_s: int = 15
 
     # Concurrency
     max_workers: int = 2

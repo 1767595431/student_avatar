@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -13,30 +15,66 @@ ROOT = Path(__file__).resolve().parents[3]
 AVATAR_ROOT = ROOT / "data" / "avatars"
 VOICE_ROOT = ROOT / "data" / "voices"
 AGENT_ROOT = ROOT / "data" / "agents"
-TTS_VOICE_ROOT = ROOT / "tts" / "voices"
 REGISTRY = AVATAR_ROOT / "registry.json"
 
 _lock = threading.Lock()
 
 
+def _mask_api_key(key: str) -> str:
+    k = (key or "").strip()
+    if len(k) <= 12:
+        return "••••" if k else ""
+    return f"{k[:6]}…{k[-4:]}"
+
+
+def normalize_prompt_wav(audio_bytes: bytes, *, suffix: str = ".bin") -> bytes:
+    """任意上传格式 → 真 RIFF PCM s16le mono 24k（Qwen Base 克隆要求 data:audio/wav）。"""
+    if len(audio_bytes) >= 12 and audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE":
+        # 已是 WAV：仍统一成 24k mono，避免 44.1k/立体声把克隆搞糊
+        pass
+    with tempfile.TemporaryDirectory(prefix="voice_norm_") as td:
+        src = Path(td) / f"in{suffix if suffix.startswith('.') else '.' + suffix}"
+        dst = Path(td) / "out.wav"
+        src.write_bytes(audio_bytes)
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(src),
+            "-ac",
+            "1",
+            "-ar",
+            "24000",
+            "-c:a",
+            "pcm_s16le",
+            str(dst),
+        ]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+        except FileNotFoundError as exc:
+            raise RuntimeError("ffmpeg not found; required to normalize voice prompt") from exc
+        except subprocess.CalledProcessError as exc:
+            err = (exc.stderr or b"").decode("utf-8", errors="replace")[:400]
+            raise RuntimeError(f"ffmpeg normalize failed: {err}") from exc
+        out = dst.read_bytes()
+        if len(out) < 44 or out[:4] != b"RIFF":
+            raise RuntimeError("normalized prompt is not a WAV")
+        return out
+
+
+def _empty_registry() -> dict[str, Any]:
+    return {
+        "default_avatar_id": "",
+        "default_version_id": "",
+        "default_voice_id": "",
+        "default_agent_id": "",
+        "avatars": {},
+    }
+
+
 def _read_registry() -> dict[str, Any]:
     if not REGISTRY.exists():
-        data = {
-            "default_avatar_id": "avatar_001",
-            "default_version_id": "avv_001",
-            "default_voice_id": "avatar_voice_001",
-            "default_agent_id": "",
-            "avatars": {},
-        }
-        # seed existing package if present
-        pkg = AVATAR_ROOT / "avatar_001" / "avv_001" / "manifest.json"
-        if pkg.exists():
-            m = json.loads(pkg.read_text(encoding="utf-8"))
-            data["avatars"]["avatar_001"] = {
-                "name": m.get("name") or "avatar_001",
-                "voice_id": m.get("voice_id") or "avatar_voice_001",
-                "versions": ["avv_001"],
-            }
+        data = _empty_registry()
         REGISTRY.parent.mkdir(parents=True, exist_ok=True)
         REGISTRY.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return data
@@ -49,12 +87,13 @@ def _write_registry(data: dict[str, Any]) -> None:
 
 
 def defaults() -> tuple[str, str, str, str]:
+    """当前默认（未设置则为空串）。新系统初始全空，仅管理端添加后才有。"""
     with _lock:
         r = _read_registry()
         return (
-            r.get("default_avatar_id") or "avatar_001",
-            r.get("default_version_id") or "avv_001",
-            r.get("default_voice_id") or "avatar_voice_001",
+            r.get("default_avatar_id") or "",
+            r.get("default_version_id") or "",
+            r.get("default_voice_id") or "",
             r.get("default_agent_id") or "",
         )
 
@@ -75,7 +114,7 @@ def set_default_avatar(avatar_id: str, version_id: str) -> dict[str, Any]:
 def set_default_voice(voice_id: str) -> dict[str, Any]:
     with _lock:
         meta = VOICE_ROOT / voice_id / "meta.json"
-        if not meta.exists() and voice_id != "avatar_voice_001":
+        if not meta.exists():
             raise KeyError("voice not found")
         r = _read_registry()
         r["default_voice_id"] = voice_id
@@ -131,13 +170,37 @@ def list_avatars() -> list[dict[str, Any]]:
     return out
 
 
+def rename_avatar(avatar_id: str, name: str) -> dict[str, Any]:
+    """Update display name on registry + each version manifest."""
+    display = (name or "").strip()
+    if not avatar_id or "/" in avatar_id:
+        raise ValueError("invalid id")
+    if not display:
+        raise ValueError("name required")
+    with _lock:
+        r = _read_registry()
+        entry = (r.get("avatars") or {}).get(avatar_id)
+        if not entry:
+            raise KeyError(avatar_id)
+        entry["name"] = display
+        _write_registry(r)
+        for vid in entry.get("versions") or []:
+            mpath = AVATAR_ROOT / avatar_id / vid / "manifest.json"
+            if not mpath.exists():
+                continue
+            meta = json.loads(mpath.read_text(encoding="utf-8"))
+            meta["name"] = display
+            mpath.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return {"avatar_id": avatar_id, "name": display}
+
+
 def register_avatar_version(
     *,
     avatar_id: str | None,
     name: str,
     voice_id: str,
 ) -> tuple[str, str, Path]:
-    """Allocate ids + upload dir. Returns avatar_id, version_id, upload_target_path."""
+    """Allocate ids + upload dir. Returns avatar_id, version_id, upload_dir."""
     with _lock:
         r = _read_registry()
         aid = avatar_id or f"avatar_{uuid.uuid4().hex[:8]}"
@@ -146,15 +209,55 @@ def register_avatar_version(
         vid = f"avv_{n:03d}"
         upload_dir = AVATAR_ROOT / "uploads" / aid / vid
         upload_dir.mkdir(parents=True, exist_ok=True)
-        src = upload_dir / "source.mp4"
         avatars = r.setdefault("avatars", {})
         entry = avatars.setdefault(aid, {"name": name, "voice_id": voice_id, "versions": []})
         entry["name"] = name or entry.get("name") or aid
         entry["voice_id"] = voice_id or entry.get("voice_id") or ""
         if vid not in entry["versions"]:
             entry["versions"].append(vid)
+        # 第一个形象自动成为默认
+        if not r.get("default_avatar_id"):
+            r["default_avatar_id"] = aid
+            r["default_version_id"] = vid
         _write_registry(r)
-        return aid, vid, src
+        return aid, vid, upload_dir
+
+
+def delete_avatar_version(avatar_id: str, version_id: str) -> None:
+    """Remove one avatar version from disk + registry；删默认则顺延或清空。"""
+    import shutil
+
+    if not avatar_id or not version_id or "/" in avatar_id or "/" in version_id:
+        raise ValueError("invalid id")
+    pkg = AVATAR_ROOT / avatar_id / version_id
+    with _lock:
+        r = _read_registry()
+        entry = (r.get("avatars") or {}).get(avatar_id)
+        in_reg = bool(entry and version_id in (entry.get("versions") or []))
+        if not in_reg and not pkg.exists():
+            raise KeyError("version not found")
+        was_default = (
+            r.get("default_avatar_id") == avatar_id and r.get("default_version_id") == version_id
+        )
+        if entry:
+            entry["versions"] = [v for v in (entry.get("versions") or []) if v != version_id]
+            if not entry["versions"]:
+                (r.get("avatars") or {}).pop(avatar_id, None)
+        if was_default:
+            nxt_a, nxt_v = "", ""
+            for aid, info in (r.get("avatars") or {}).items():
+                vers = info.get("versions") or []
+                if vers:
+                    nxt_a, nxt_v = aid, vers[0]
+                    break
+            r["default_avatar_id"] = nxt_a
+            r["default_version_id"] = nxt_v
+        _write_registry(r)
+    shutil.rmtree(pkg, ignore_errors=True)
+    shutil.rmtree(AVATAR_ROOT / "uploads" / avatar_id / version_id, ignore_errors=True)
+    adir = AVATAR_ROOT / avatar_id
+    if adir.is_dir() and not any(adir.iterdir()):
+        shutil.rmtree(adir, ignore_errors=True)
 
 
 def mark_avatar_failed(avatar_id: str, version_id: str, error: str) -> None:
@@ -181,24 +284,15 @@ def mark_avatar_failed(avatar_id: str, version_id: str, error: str) -> None:
 def list_voices() -> list[dict[str, Any]]:
     with _lock:
         r = _read_registry()
-        default_vid = r.get("default_voice_id") or "avatar_voice_001"
+        default_vid = r.get("default_voice_id") or ""
     out: list[dict[str, Any]] = []
     VOICE_ROOT.mkdir(parents=True, exist_ok=True)
-    # ensure default from tts/voices/default_prompt.wav is listed
-    default_wav = TTS_VOICE_ROOT / "default_prompt.wav"
-    if default_wav.exists() and not (VOICE_ROOT / "avatar_voice_001" / "meta.json").exists():
-        save_voice(
-            voice_id="avatar_voice_001",
-            wav_bytes=default_wav.read_bytes(),
-            prompt_text="希望你以后能够做的比我还好呦。",
-            name="默认音模",
-        )
     for d in sorted(VOICE_ROOT.iterdir()):
         meta = d / "meta.json"
         if not meta.exists():
             continue
         m = json.loads(meta.read_text(encoding="utf-8"))
-        m["is_default"] = m.get("voice_id") == default_vid
+        m["is_default"] = bool(default_vid) and m.get("voice_id") == default_vid
         out.append(m)
     return out
 
@@ -209,17 +303,15 @@ def save_voice(
     wav_bytes: bytes,
     prompt_text: str,
     name: str = "",
+    source_suffix: str = ".wav",
 ) -> dict[str, Any]:
     if not voice_id or "/" in voice_id or ".." in voice_id:
         raise ValueError("invalid voice_id")
     dest = VOICE_ROOT / voice_id
     dest.mkdir(parents=True, exist_ok=True)
     wav_path = dest / "prompt.wav"
-    wav_path.write_bytes(wav_bytes)
-    # mirror for TTS workers that scan tts/voices/<id>/
-    tts_dest = TTS_VOICE_ROOT / voice_id
-    tts_dest.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(wav_path, tts_dest / "prompt.wav")
+    # 管理端常上传 mp3 却叫 .wav；Qwen 按 WAV 解会直接出噪音
+    wav_path.write_bytes(normalize_prompt_wav(wav_bytes, suffix=source_suffix))
     meta = {
         "voice_id": voice_id,
         "name": name or voice_id,
@@ -227,9 +319,12 @@ def save_voice(
         "prompt_wav": str(wav_path),
         "created_at": int(time.time()),
     }
-    meta_json = json.dumps(meta, ensure_ascii=False, indent=2)
-    (dest / "meta.json").write_text(meta_json, encoding="utf-8")
-    (tts_dest / "meta.json").write_text(meta_json, encoding="utf-8")
+    (dest / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    with _lock:
+        r = _read_registry()
+        if not r.get("default_voice_id"):
+            r["default_voice_id"] = voice_id
+            _write_registry(r)
     return meta
 
 
@@ -254,6 +349,7 @@ def list_agents(*, include_secret: bool = False) -> list[dict[str, Any]]:
             "mode": m.get("mode") or "",
             "base_url": m.get("base_url") or "",
             "is_default": (m.get("agent_id") or d.name) == default_aid,
+            "api_key_masked": _mask_api_key(m.get("api_key") or ""),
         }
         if include_secret:
             item["api_key"] = m.get("api_key") or ""
@@ -318,34 +414,14 @@ def delete_agent(agent_id: str) -> None:
     with _lock:
         if not dest.exists():
             raise KeyError("agent not found")
-        r = _read_registry()
-        if r.get("default_agent_id") == agent_id:
-            raise ValueError("cannot delete default agent")
         shutil.rmtree(dest, ignore_errors=True)
         r = _read_registry()
         if r.get("default_agent_id") == agent_id:
-            r["default_agent_id"] = ""
+            # 持锁内直接扫盘，避免 list_agents() 再抢同一把锁死锁
+            rest: list[str] = []
+            if AGENT_ROOT.exists():
+                for d in sorted(AGENT_ROOT.iterdir()):
+                    if d.is_dir() and (d / "meta.json").exists():
+                        rest.append(d.name)
+            r["default_agent_id"] = rest[0] if rest else ""
             _write_registry(r)
-
-
-def ensure_env_agent(api_key: str, base_url: str, name: str = "", mode: str = "") -> dict[str, Any] | None:
-    """Seed one agent from .env if registry empty / missing."""
-    if not api_key:
-        return None
-    AGENT_ROOT.mkdir(parents=True, exist_ok=True)
-    existing = list_agents()
-    if existing:
-        with _lock:
-            r = _read_registry()
-            if not r.get("default_agent_id"):
-                r["default_agent_id"] = existing[0]["agent_id"]
-                _write_registry(r)
-        return get_agent(existing[0]["agent_id"])
-    aid = "agent_default"
-    return save_agent(
-        agent_id=aid,
-        api_key=api_key,
-        name=name or "默认智能体",
-        mode=mode,
-        base_url=base_url,
-    )

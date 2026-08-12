@@ -1,0 +1,80 @@
+# Qwen3-TTS 0.6B Base — 单卡双 stage（官方拓扑：每卡 1 个完整服务）
+# 驱动已升到 580 / CUDA 13 → 走 FLASH_ATTN + 默认可 cudagraph（不再 TRITON 权宜）
+#
+# 相对上游 qwen3_tts.yaml：
+#   * Stage1 max_num_seqs: 10（Base 克隆官方调度上限）
+#   * gpu_memory_utilization 抬高以吃满 48G（同卡两 stage 分摊）
+async_chunk: true
+
+connectors:
+  connector_of_shared_memory:
+    name: SharedMemoryConnector
+    extra:
+      codec_streaming: true
+      connector_get_sleep_s: 0.01
+      connector_get_max_wait_first_chunk: 3000
+      connector_get_max_wait: 300
+      codec_chunk_frames: 25
+      codec_left_context_frames: 72
+      initial_codec_chunk_frames: 1
+      decode_cudagraph_capture_sizes: [25, 73, 97, 169, 325]
+
+stages:
+  - stage_id: 0
+    max_num_seqs: 32
+    # 48G：为 GPU0 上 FunASR（~2GB）留空；Stage0/1 同分卡
+    gpu_memory_utilization: 0.52
+    trust_remote_code: true
+    enable_prefix_caching: false
+    async_scheduling: true
+    max_num_batched_tokens: 32768
+    max_model_len: 4096
+    devices: "0"
+    output_connectors:
+      to_stage_1: connector_of_shared_memory
+    default_sampling_params:
+      temperature: 0.9
+      top_k: 50
+      max_tokens: 4096
+      min_tokens: 2
+      repetition_penalty: 1.05
+    subtalker_sampling_params:
+      do_sample: true
+      temperature: 0.9
+      top_k: 50
+      top_p: 1.0
+
+  - stage_id: 1
+    # Base voice clone：官方调度上限 10
+    max_num_seqs: 10
+    gpu_memory_utilization: 0.32
+    enforce_eager: false
+    trust_remote_code: true
+    enable_prefix_caching: false
+    async_scheduling: true
+    max_num_batched_tokens: 65536
+    max_model_len: 65536
+    devices: "0"
+    input_connectors:
+      from_stage_0: connector_of_shared_memory
+    default_sampling_params:
+      temperature: 0.0
+      top_p: 1.0
+      top_k: -1
+      max_tokens: 65536
+      repetition_penalty: 1.0
+
+platforms:
+  rocm:
+    stages:
+      - stage_id: 1
+        enforce_eager: true
+  npu:
+    stages:
+      - stage_id: 0
+        enforce_eager: false
+        compilation_config:
+          cudagraph_mode: PIECEWISE
+      - stage_id: 1
+        compilation_config:
+          cudagraph_mode: PIECEWISE

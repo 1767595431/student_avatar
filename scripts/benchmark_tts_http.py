@@ -114,7 +114,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--tts-http",
-        default=",".join(f"http://127.0.0.1:{p}" for p in range(8200, 8206)),
+        default=",".join(f"http://127.0.0.1:{p}" for p in (8300, 8301)),
     )
     ap.add_argument("--text", default=TEXT)
     ap.add_argument("--ladder", default="1,2,4,6")

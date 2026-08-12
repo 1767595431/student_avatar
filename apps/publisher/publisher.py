@@ -82,7 +82,15 @@ class SessionPublisher:
         self._audio_source = rtc.AudioSource(self.sample_rate, 1)
         self._video_track = rtc.LocalVideoTrack.create_video_track("avatar", self._video_source)
         self._audio_track = rtc.LocalAudioTrack.create_audio_track("voice", self._audio_source)
-        await self.room.local_participant.publish_track(self._video_track)
+        # 原分辨率最高可到 1080p；码率按像素抬一点，关 simulcast 避免多层降清
+        px = max(1, w * h)
+        max_br = min(8_000_000, max(3_500_000, int(3_500_000 * px / (1280 * 720))))
+        vopts = rtc.TrackPublishOptions(
+            source=rtc.TrackSource.SOURCE_CAMERA,
+            video_encoding=rtc.VideoEncoding(max_bitrate=max_br, max_framerate=25),
+            simulcast=False,
+        )
+        await self.room.local_participant.publish_track(self._video_track, vopts)
         await self.room.local_participant.publish_track(self._audio_track)
         self._running = True
         self._loop_task = asyncio.create_task(self._media_loop())
@@ -133,10 +141,40 @@ class SessionPublisher:
         assert self._video_source is not None and self._audio_source is not None
         samples_per_frame = int(self.sample_rate / self.package.fps)  # 960 @24k/25fps
         while self._running:
-            # video
+            need = samples_per_frame * 2  # int16 mono
+            buf = bytearray()
+
+            def _pull() -> None:
+                nonlocal buf
+                with self._pcm_lock:
+                    while len(buf) < need and self._pcm_queue:
+                        chunk = self._pcm_queue.popleft()
+                        buf.extend(chunk)
+                    if len(buf) > need:
+                        leftover = bytes(buf[need:])
+                        buf = bytearray(buf[:need])
+                        self._pcm_queue.appendleft(leftover)
+
+            _pull()
+            # 讲话中没 PCM：暂停时钟等待，绝不填静音后再追帧（那才是断续主因）
+            if len(buf) < need and self._speaking:
+                waited = 0.0
+                while len(buf) < need and self._speaking and self._running and waited < 8.0:
+                    await asyncio.sleep(0.02)
+                    waited += 0.02
+                    _pull()
+                if len(buf) < need:
+                    # 仍不足：跳过本帧并 resync，避免静音+追帧双打击
+                    self.clock.resync()
+                    continue
+                if waited >= 0.04:
+                    self.clock.resync()
+
+            if len(buf) < need:
+                buf.extend(b"\x00" * (need - len(buf)))
+
             frame_rgb = self.controller.next_frame()
             _, pts = self.clock.next()
-            # LiveKit VideoFrame expects RGBA or I420; use RGBA
             rgba = np.dstack(
                 [frame_rgb, np.full(frame_rgb.shape[:2], 255, dtype=np.uint8)]
             )
@@ -147,20 +185,6 @@ class SessionPublisher:
                 data=rgba.tobytes(),
             )
             self._video_source.capture_frame(video_frame)
-
-            # audio: pull PCM for ~1 video frame duration
-            need = samples_per_frame * 2  # int16 mono
-            buf = bytearray()
-            with self._pcm_lock:
-                while len(buf) < need and self._pcm_queue:
-                    chunk = self._pcm_queue.popleft()
-                    buf.extend(chunk)
-                if len(buf) > need:
-                    leftover = bytes(buf[need:])
-                    buf = buf[:need]
-                    self._pcm_queue.appendleft(leftover)
-            if len(buf) < need:
-                buf.extend(b"\x00" * (need - len(buf)))
             audio_frame = rtc.AudioFrame(
                 data=bytes(buf[:need]),
                 sample_rate=self.sample_rate,
@@ -186,6 +210,9 @@ class PublisherPool:
 
     def get(self, session_id: str) -> Optional[SessionPublisher]:
         return self._pubs.get(session_id)
+
+    def count(self) -> int:
+        return len(self._pubs)
 
     async def ensure(
         self,

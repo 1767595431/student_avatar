@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>总控监听 · 实时数字人</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/common.css" />
+  <link rel="stylesheet" href="/static/css/app.css" />
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="container">
+      <nav class="nav">
+        <a href="/" class="logo"><span class="logo-icon">✦</span><span>实时数字人</span></a>
+        <ul class="nav-links">
+          <li><a href="/">学生端</a></li>
+          <li><a href="/concurrent">并发联调</a></li>
+          <li><a href="/monitor" class="active">总控</a></li>
+          <li><a href="/admin">管理端</a></li>
+        </ul>
+      </nav>
+
+      <div class="admin-toolbar">
+        <h2>后台总控监听</h2>
+        <p class="muted" style="margin:0">服务连通 · ASR≈4 · TTS=8 · 会话硬顶；Dify 仅观测活跃</p>
+      </div>
+
+      <div class="panel" style="margin-bottom:14px">
+        <div class="panel-head">
+          <h2>服务连接</h2>
+          <span class="sub" id="svcHint">探测中…</span>
+        </div>
+        <div class="mon-svc-grid" id="svcGrid"></div>
+        <div class="mon-foot" style="margin-top:12px">
+          Publisher 推流中 <strong id="pubActive">0</strong>
+        </div>
+      </div>
+
+      <div class="mon-hero panel">
+        <div class="mon-hero-main">
+          <div class="mon-kicker">会话容量</div>
+          <div class="mon-big"><span id="sessUsed">0</span><span class="mon-slash">/</span><span id="sessMax">30</span></div>
+          <div class="mon-sub">剩余可用 <strong id="sessRemain">30</strong> · 更新 <span id="ts">—</span></div>
+        </div>
+        <div class="mon-bar-wrap" aria-hidden="true">
+          <div class="mon-bar" id="sessBar"></div>
+        </div>
+      </div>
+
+      <div class="mon-grid">
+        <section class="panel mon-card" data-key="asr">
+          <div class="panel-head">
+            <h2>ASR 并发</h2>
+            <span class="sub" id="asrPeak">峰值 0</span>
+          </div>
+          <div class="mon-card-val"><span id="asrActive">0</span><span class="mon-dim"> / <span id="asrMax">4</span></span></div>
+          <div class="mon-meter"><i id="asrBar"></i></div>
+          <div class="mon-foot">剩余 <span id="asrRemain">4</span> · 双卡×2 workers</div>
+          <div class="mon-bybase" id="asrByBase"></div>
+        </section>
+        <section class="panel mon-card" data-key="dify">
+          <div class="panel-head">
+            <h2>Dify LLM</h2>
+            <span class="sub" id="difyPeak">峰值 0</span>
+          </div>
+          <div class="mon-card-val"><span id="difyActive">0</span><span class="mon-dim" id="difyMaxWrap"> 活跃</span></div>
+          <div class="mon-meter"><i id="difyBar"></i></div>
+          <div class="mon-foot" id="difyFoot">无本地上限 · 限额在通义/Dify</div>
+        </section>
+        <section class="panel mon-card" data-key="tts">
+          <div class="panel-head">
+            <h2>TTS 并发</h2>
+            <span class="sub" id="ttsPeak">峰值 0</span>
+          </div>
+          <div class="mon-card-val"><span id="ttsActive">0</span><span class="mon-dim"> / <span id="ttsMax">8</span></span></div>
+          <div class="mon-meter"><i id="ttsBar"></i></div>
+          <div class="mon-foot">剩余 <span id="ttsRemain">8</span> · 业务槽位</div>
+          <div class="mon-bybase" id="ttsByBase"></div>
+        </section>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <div class="panel-head">
+          <h2>会话状态分布</h2>
+          <span class="sub" id="stateHint">暂无会话</span>
+        </div>
+        <div class="mon-states" id="states"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API = location.origin;
+const $ = (id) => document.getElementById(id);
+
+function pct(used, max) {
+  if (!max) return 0;
+  return Math.max(0, Math.min(100, Math.round((used / max) * 100)));
+}
+
+function setMeter(barId, used, max) {
+  const el = $(barId);
+  if (!el) return;
+  const p = pct(used, max);
+  el.style.width = p + '%';
+  el.classList.toggle('hot', p >= 85);
+  el.classList.toggle('mid', p >= 60 && p < 85);
+}
+
+function shortUrl(u) {
+  try {
+    const x = new URL(u);
+    return x.host + (x.pathname === '/' ? '' : x.pathname.replace(/\/$/, ''));
+  } catch (e) {
+    return String(u || '');
+  }
+}
+
+function renderServices(svc, pubs) {
+  const items = (svc && svc.items) || [];
+  const up = svc?.up ?? 0;
+  const total = svc?.total ?? items.length;
+  $('svcHint').textContent = total ? `在线 ${up} / ${total}` : '无探测目标';
+  $('pubActive').textContent = pubs?.active ?? 0;
+  const box = $('svcGrid');
+  if (!items.length) {
+    box.innerHTML = '<div class="mon-svc empty">暂无服务探测</div>';
+    return;
+  }
+  box.innerHTML = items.map((it) => {
+    const ok = !!it.ok;
+    const lat = it.latency_ms != null ? `${it.latency_ms} ms` : '—';
+    const detail = ok ? lat : (it.detail || '不可达');
+    return `
+      <div class="mon-svc ${ok ? 'up' : 'down'}" title="${String(it.url || '').replace(/"/g, '&quot;')}">
+        <div class="mon-svc-top">
+          <span class="dot"></span>
+          <span class="name">${it.name || it.id}</span>
+          <span class="badge">${ok ? 'UP' : 'DOWN'}</span>
+        </div>
+        <div class="mon-svc-url">${shortUrl(it.url)}</div>
+        <div class="mon-svc-meta">${detail}</div>
+      </div>`;
+  }).join('');
+}
+
+function renderByBase(elId, by) {
+  const el = $(elId);
+  if (!el) return;
+  const entries = Object.entries(by || {});
+  if (!entries.length) {
+    el.textContent = '';
+    return;
+  }
+  el.innerHTML = entries
+    .map(([u, n]) => `<span>${shortUrl(u)} · ${n}</span>`)
+    .join('');
+}
+
+function renderStates(by) {
+  const box = $('states');
+  const entries = Object.entries(by || {}).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) {
+    box.innerHTML = '<div class="mon-state empty">当前没有活跃会话</div>';
+    $('stateHint').textContent = '暂无会话';
+    return;
+  }
+  const labels = {
+    idle: '待机', recognizing: '识别中', thinking: '思考中',
+    speaking: '讲话中', interrupting: '打断中', init: '初始化', closed: '已关闭',
+  };
+  $('stateHint').textContent = entries.map(([k, v]) => `${labels[k] || k} ${v}`).join(' · ');
+  box.innerHTML = entries.map(([k, v]) => `
+    <div class="mon-state">
+      <span class="k">${labels[k] || k}</span>
+      <span class="v">${v}</span>
+    </div>`).join('');
+}
+
+function renderCapped(key, m) {
+  $(key + 'Active').textContent = m.active ?? 0;
+  $(key + 'Max').textContent = m.max ?? 0;
+  $(key + 'Remain').textContent = m.remaining ?? 0;
+  $(key + 'Peak').textContent = '峰值 ' + (m.peak ?? 0);
+  setMeter(key + 'Bar', m.active ?? 0, m.max ?? 1);
+  renderByBase(key + 'ByBase', m.by_base);
+}
+
+function renderDify(m) {
+  const active = m.active ?? 0;
+  const peak = m.peak ?? 0;
+  $('difyActive').textContent = active;
+  $('difyPeak').textContent = '峰值 ' + peak;
+  setMeter('difyBar', active, Math.max(peak, active, 1));
+  if (m.note) $('difyFoot').textContent = m.note;
+}
+
+async function tick() {
+  try {
+    const r = await fetch(API + '/api/v1/monitor/stats');
+    if (!r.ok) throw new Error(await r.text());
+    const j = await r.json();
+    const s = j.sessions || {};
+    const used = s.used || 0;
+    const max = s.max || 30;
+    $('sessUsed').textContent = used;
+    $('sessMax').textContent = max;
+    $('sessRemain').textContent = s.remaining ?? Math.max(0, max - used);
+    setMeter('sessBar', used, max);
+    const t = j.ts ? new Date(j.ts * 1000) : new Date();
+    $('ts').textContent = t.toLocaleTimeString();
+
+    renderServices(j.services, j.publishers);
+    renderCapped('asr', j.asr || {});
+    renderDify(j.dify || {});
+    renderCapped('tts', j.tts || {});
+    renderStates(s.by_state);
+  } catch (e) {
+    $('ts').textContent = '拉取失败';
+    $('svcHint').textContent = '拉取失败';
+    console.warn(e);
+  }
+}
+
+tick();
+setInterval(tick, 1000);
+</script>
+<script src="/static/js/nav.js"></script>
+</body>
+</html>

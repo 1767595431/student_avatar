@@ -30,6 +30,12 @@ class FrameClock:
             delay = 0.0
         return delay
 
+    def resync(self) -> None:
+        """欠载暂停后对齐时钟，避免 sleep_until_next 连发追帧造成听感卡顿。"""
+        now = time.monotonic()
+        self._start = now - self._index * self.interval
+        self._next_deadline = now
+
     @property
     def frame_index(self) -> int:
         return self._index

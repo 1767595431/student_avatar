@@ -3,170 +3,175 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>管理端 · 形象 / 音模</title>
-  <style>
-    :root {
-      --bg: #101820;
-      --panel: #1a2430;
-      --text: #e7eef6;
-      --muted: #8fa0b3;
-      --line: #2a3848;
-      --accent: #2f7de0;
-      --ok: #2fbf71;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; color: var(--text);
-      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-      background: linear-gradient(160deg, #152033, var(--bg) 45%);
-      min-height: 100vh; padding: 24px;
-    }
-    h1 { margin: 0 0 6px; font-size: 22px; }
-    .sub { color: var(--muted); margin-bottom: 18px; }
-    .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-    .tabs button {
-      border: 1px solid var(--line); background: transparent; color: var(--text);
-      padding: 8px 14px; border-radius: 8px; cursor: pointer;
-    }
-    .tabs button.on { background: var(--accent); border-color: var(--accent); }
-    .panel {
-      background: var(--panel); border: 1px solid var(--line);
-      border-radius: 12px; padding: 16px; margin-bottom: 16px;
-      max-width: 920px;
-    }
-    label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
-    input, select { width: 100%; max-width: 420px; padding: 8px 10px; border-radius: 8px;
-      border: 1px solid var(--line); background: #0f1620; color: var(--text); }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
-    button.act {
-      border: 0; background: var(--accent); color: #fff; padding: 10px 16px;
-      border-radius: 8px; cursor: pointer; font-weight: 600;
-    }
-    button.ghost {
-      border: 1px solid var(--line); background: transparent; color: var(--text);
-      padding: 8px 12px; border-radius: 8px; cursor: pointer;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
-    .ok { color: var(--ok); }
-    .muted { color: var(--muted); }
-    .hidden { display: none; }
-    img.thumb { width: 96px; height: 54px; object-fit: cover; border-radius: 6px; background: #000; }
-    #log { white-space: pre-wrap; font-size: 12px; color: var(--muted); max-height: 160px; overflow: auto; }
-  </style>
+  <title>管理端 · 实时数字人</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/common.css" />
+  <link rel="stylesheet" href="/static/css/app.css" />
 </head>
 <body>
-  <h1>管理端</h1>
-  <div class="sub">形象 · 音模 · 智能体 · <a href="/" style="color:#7eb6ff">学生端</a> · <a href="/concurrent" style="color:#7eb6ff">并发联调</a></div>
-  <div class="tabs">
-    <button class="on" id="tabAvatar" type="button">形象</button>
-    <button id="tabVoice" type="button">音模</button>
-    <button id="tabAgent" type="button">智能体</button>
-  </div>
+  <div class="page-wrap">
+    <div class="container">
+      <nav class="nav">
+        <a href="/" class="logo"><span class="logo-icon">✦</span><span>实时数字人</span></a>
+        <ul class="nav-links">
+          <li><a href="/">学生端</a></li>
+          <li><a href="/concurrent">并发联调</a></li>
+          <li><a href="/monitor">总控</a></li>
+          <li><a href="/admin" class="active">管理端</a></li>
+        </ul>
+      </nav>
 
-  <section id="secAvatar">
-    <div class="panel">
-      <strong>上传形象视频</strong>
-      <label>名称</label>
-      <input id="aName" value="课堂形象" />
-      <label>绑定音模 voice_id（可选）</label>
-      <input id="aVoice" placeholder="avatar_voice_001" />
-      <label>视频 mp4（开头应为闭嘴待机）</label>
-      <input id="aVideo" type="file" accept="video/mp4,video/*" />
-      <label>idle / talk_start / talk_end（默认 idle=0 开头闭嘴；上传后可再滑块调节）</label>
-      <div class="row">
-        <input id="aIdle" type="number" value="0" style="max-width:100px" />
-        <input id="aStart" type="number" value="21" style="max-width:100px" />
-        <input id="aEnd" type="number" value="-1" style="max-width:100px" />
+      <div class="tabs-pill" role="tablist">
+        <button class="on" id="tabAvatar" type="button" role="tab">形象管理</button>
+        <button id="tabVoice" type="button" role="tab">音模管理</button>
+        <button id="tabAgent" type="button" role="tab">智能体</button>
       </div>
-      <div class="row"><button class="act" id="btnUploadAvatar" type="button">上传并预处理</button></div>
-    </div>
-    <div class="panel">
-      <strong>已有形象</strong>
-      <div class="row"><button class="ghost" id="btnRefreshA" type="button">刷新</button></div>
-      <table>
-        <thead><tr><th>预览</th><th>信息</th><th>操作</th></tr></thead>
-        <tbody id="avatarRows"></tbody>
-      </table>
-    </div>
-    <div class="panel hidden" id="frameEditor">
-      <strong>帧区间调节 · <span id="feTitle" class="muted"></span></strong>
-      <div class="row" style="align-items:flex-start;gap:16px;margin-top:12px">
-        <div>
-          <div class="muted" style="margin-bottom:6px">当前预览帧</div>
-          <img id="fePreview" class="thumb" style="width:320px;height:180px" alt="preview" />
-        </div>
-        <div style="flex:1;min-width:220px">
-          <label>Idle Frame <span id="feIdleVal">0</span></label>
-          <input id="feIdle" type="range" min="0" max="0" value="0" style="max-width:100%" />
-          <label>Talk Start <span id="feStartVal">0</span></label>
-          <input id="feStart" type="range" min="0" max="0" value="0" style="max-width:100%" />
-          <label>Talk End <span id="feEndVal">0</span></label>
-          <input id="feEnd" type="range" min="0" max="0" value="0" style="max-width:100%" />
-          <div class="row">
-            <button class="ghost" id="btnPrevIdle" type="button">预览待机</button>
-            <button class="ghost" id="btnPrevTalk" type="button">预览说话循环</button>
-            <button class="act" id="btnSaveFrames" type="button">保存帧参数</button>
+
+      <section id="secAvatar">
+        <div class="admin-page-head">
+          <div>
+            <h2>数字人形象</h2>
+            <p class="lead">上传待机 + 动嘴视频；就绪后可设为学生端默认形象。</p>
+          </div>
+          <div class="admin-page-actions">
+            <button class="btn btn-ghost btn-sm" id="btnRefreshA" type="button">刷新</button>
+            <button class="btn btn-primary btn-sm" id="btnOpenAvatar" type="button">+ 上传新形象</button>
           </div>
         </div>
+        <div class="asset-grid avatars" id="avatarGrid"></div>
+        <div class="admin-pager" id="avatarPager" hidden>
+          <button class="btn btn-ghost btn-sm" type="button" data-page="-1">上一页</button>
+          <span id="avatarPageLabel">1 / 1</span>
+          <button class="btn btn-ghost btn-sm" type="button" data-page="1">下一页</button>
+        </div>
+      </section>
+
+      <section id="secVoice" class="hidden">
+        <div class="admin-page-head">
+          <div>
+            <h2>TTS 音模</h2>
+            <p class="lead">本地 Qwen3 克隆参考音；名称手填，提示文本由 ASR 自动识别。</p>
+          </div>
+          <div class="admin-page-actions">
+            <button class="btn btn-ghost btn-sm" id="btnRefreshV" type="button">刷新</button>
+            <button class="btn btn-primary btn-sm" id="btnOpenVoice" type="button">+ 添加音模</button>
+          </div>
+        </div>
+        <div class="asset-grid" id="voiceGrid"></div>
+        <div class="admin-pager" id="voicePager" hidden>
+          <button class="btn btn-ghost btn-sm" type="button" data-page="-1">上一页</button>
+          <span id="voicePageLabel">1 / 1</span>
+          <button class="btn btn-ghost btn-sm" type="button" data-page="1">下一页</button>
+        </div>
+      </section>
+
+      <section id="secAgent" class="hidden">
+        <div class="admin-page-head">
+          <div>
+            <h2>Dify 智能体</h2>
+            <p class="lead">只需粘贴 App Key，名称从 Dify 自动获取；启动数字人时可选任意一个。</p>
+          </div>
+          <div class="admin-page-actions">
+            <button class="btn btn-ghost btn-sm" id="btnRefreshG" type="button">刷新</button>
+            <button class="btn btn-primary btn-sm" id="btnOpenAgent" type="button">+ 添加新智能体</button>
+          </div>
+        </div>
+        <div class="asset-grid" id="agentGrid"></div>
+        <div class="admin-pager" id="agentPager" hidden>
+          <button class="btn btn-ghost btn-sm" type="button" data-page="-1">上一页</button>
+          <span id="agentPageLabel">1 / 1</span>
+          <button class="btn btn-ghost btn-sm" type="button" data-page="1">下一页</button>
+        </div>
+      </section>
+
+      <div class="admin-toast" id="log" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <!-- 添加弹层 -->
+  <div class="modal-overlay admin-form-modal" id="modalAvatar" role="dialog" aria-modal="true" hidden>
+    <div class="modal-dialog">
+      <button type="button" class="modal-close" data-close aria-label="关闭">×</button>
+      <h3>上传新形象</h3>
+      <p>待机片会正放再倒放循环；说话时交叉淡入动嘴片。分辨率保持原片（不超过 1080p）。</p>
+      <div class="field">
+        <label class="field-label" for="aName">形象名称</label>
+        <input class="form-input" id="aName" placeholder="例如：课堂老师" />
+      </div>
+      <div class="field">
+        <label class="field-label" for="aIdle">待机视频（闭嘴）</label>
+        <input class="form-input" id="aIdle" type="file" accept="video/mp4,video/*" />
+      </div>
+      <div class="field">
+        <label class="field-label" for="aTalk">动嘴视频（说话）</label>
+        <input class="form-input" id="aTalk" type="file" accept="video/mp4,video/*" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" data-close>取消</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btnUploadAvatar">上传</button>
       </div>
     </div>
-  </section>
+  </div>
 
-  <section id="secVoice" class="hidden">
-    <div class="panel">
-      <strong>上传音模</strong>
-      <label>voice_id</label>
-      <input id="vId" placeholder="teacher_voice_01" />
-      <label>名称</label>
-      <input id="vName" placeholder="老师音色" />
-      <label>提示文本 prompt_text</label>
-      <input id="vText" value="希望你以后能够做的比我还好呦。" />
-      <label>参考 wav</label>
-      <input id="vWav" type="file" accept="audio/wav,audio/*" />
-      <div class="row"><button class="act" id="btnUploadVoice" type="button">注册音模</button></div>
+  <div class="modal-overlay admin-form-modal" id="modalVoice" role="dialog" aria-modal="true" hidden>
+    <div class="modal-dialog">
+      <button type="button" class="modal-close" data-close aria-label="关闭">×</button>
+      <h3>添加音模</h3>
+      <p>上传参考音频后会自动 ASR 识别提示文本并热加载到 TTS。</p>
+      <div class="field">
+        <label class="field-label" for="vName">音模名</label>
+        <input class="form-input" id="vName" placeholder="例如：康辉" />
+      </div>
+      <div class="field">
+        <label class="field-label" for="vWav">参考音频</label>
+        <input class="form-input" id="vWav" type="file" accept="audio/wav,audio/*,.wav,.mp3,.m4a,.webm" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" data-close>取消</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btnUploadVoice">上传</button>
+      </div>
     </div>
-    <div class="panel">
-      <strong>已有音模</strong>
-      <div class="row"><button class="ghost" id="btnRefreshV" type="button">刷新</button></div>
-      <table>
-        <thead><tr><th>voice_id</th><th>名称 / 文本</th><th>操作</th></tr></thead>
-        <tbody id="voiceRows"></tbody>
-      </table>
-    </div>
-  </section>
+  </div>
 
-  <section id="secAgent" class="hidden">
-    <div class="panel">
-      <strong>添加 Dify 智能体</strong>
-      <label>API Key（Dify 应用密钥）</label>
-      <input id="gKey" placeholder="app-xxxxxxxx" />
-      <label>Base URL（可选，默认用服务端配置）</label>
-      <input id="gBase" placeholder="http://117.50.223.142:7000" />
-      <label>agent_id（可选，留空自动生成）</label>
-      <input id="gId" placeholder="agent_chatbot" />
-      <label>显示名（可选，留空则用 Dify /v1/info 的 name）</label>
-      <input id="gName" placeholder="" />
-      <div class="row"><button class="act" id="btnUploadAgent" type="button">拉取并注册</button></div>
+  <div class="modal-overlay admin-form-modal" id="modalAgent" role="dialog" aria-modal="true" hidden>
+    <div class="modal-dialog">
+      <button type="button" class="modal-close" data-close aria-label="关闭">×</button>
+      <h3>添加新智能体</h3>
+      <p>粘贴 Dify App API Key，名称与 mode 将自动拉取。</p>
+      <div class="field">
+        <label class="field-label" for="gKey">API Key</label>
+        <input class="form-input" id="gKey" placeholder="app-xxxxxxxx" autocomplete="off" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" data-close>取消</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btnUploadAgent">添加</button>
+      </div>
     </div>
-    <div class="panel">
-      <strong>已有智能体</strong>
-      <div class="row"><button class="ghost" id="btnRefreshG" type="button">刷新</button></div>
-      <table>
-        <thead><tr><th>agent_id</th><th>名称 / mode</th><th>操作</th></tr></thead>
-        <tbody id="agentRows"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <div class="panel"><div id="log"></div></div>
+  </div>
 
 <script>
 const API = '';
-const log = (m) => { const el = document.getElementById('log'); el.textContent += m + '\n'; el.scrollTop = el.scrollHeight; };
+const PAGE = 8;
+const state = {
+  avatar: { items: [], page: 0 },
+  voice: { items: [], page: 0 },
+  agent: { items: [], page: 0 },
+};
+let previewAudio = null;
+
+const log = (m) => {
+  const el = document.getElementById('log');
+  el.textContent += m + '\n';
+  el.scrollTop = el.scrollHeight;
+};
+const confirmAsync = (msg) => (window.dhConfirm ? window.dhConfirm(msg, { danger: true, title: '请确认' }) : Promise.resolve(confirm(msg)));
+const promptAsync = (msg, def, title) => (window.dhPrompt ? window.dhPrompt(msg, def, { title: title || '请输入' }) : Promise.resolve(prompt(msg, def)));
+const esc = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 function showTab(which) {
-  ['Avatar','Voice','Agent'].forEach(t => {
+  ['Avatar', 'Voice', 'Agent'].forEach((t) => {
     document.getElementById('tab' + t).classList.toggle('on', t === which);
     document.getElementById('sec' + t).classList.toggle('hidden', t !== which);
   });
@@ -175,30 +180,228 @@ document.getElementById('tabAvatar').onclick = () => showTab('Avatar');
 document.getElementById('tabVoice').onclick = () => showTab('Voice');
 document.getElementById('tabAgent').onclick = () => showTab('Agent');
 
-async function loadAgents() {
-  const r = await fetch(API + '/api/v1/agents');
-  const j = await r.json();
-  const tb = document.getElementById('agentRows');
-  tb.innerHTML = '';
-  for (const a of j.agents || []) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${a.agent_id} ${a.is_default ? '<span class="ok">默认</span>' : ''}</td>
-      <td>${a.name || ''}<div class="muted">${a.mode || ''} ${a.base_url || ''}</div></td>
-      <td><button class="ghost" data-aid="${a.agent_id}">设默认</button>
-          ${a.is_default ? '' : `<button class="ghost" data-del="${a.agent_id}">删除</button>`}</td>`;
-    tb.appendChild(tr);
+function openModal(id) {
+  const el = document.getElementById(id);
+  el.hidden = false;
+  el.classList.add('open');
+  document.documentElement.classList.add('modal-scroll-lock');
+}
+function closeModal(el) {
+  el.classList.remove('open');
+  document.documentElement.classList.remove('modal-scroll-lock');
+  setTimeout(() => { el.hidden = true; }, 280);
+}
+document.querySelectorAll('.admin-form-modal').forEach((m) => {
+  m.addEventListener('click', (e) => { if (e.target === m) closeModal(m); });
+  m.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => closeModal(m)));
+});
+document.getElementById('btnOpenAvatar').onclick = () => openModal('modalAvatar');
+document.getElementById('btnOpenVoice').onclick = () => openModal('modalVoice');
+document.getElementById('btnOpenAgent').onclick = () => openModal('modalAgent');
+
+function pageSlice(store) {
+  const pages = Math.max(1, Math.ceil(store.items.length / PAGE) || 1);
+  if (store.page >= pages) store.page = pages - 1;
+  if (store.page < 0) store.page = 0;
+  const start = store.page * PAGE;
+  return { slice: store.items.slice(start, start + PAGE), pages, total: store.items.length };
+}
+
+function bindPager(pagerId, storeKey, renderFn) {
+  const pager = document.getElementById(pagerId);
+  pager.querySelectorAll('[data-page]').forEach((btn) => {
+    btn.onclick = () => {
+      state[storeKey].page += Number(btn.dataset.page);
+      renderFn();
+    };
+  });
+}
+
+function updatePager(pagerId, labelId, store) {
+  const { pages, total } = pageSlice(store);
+  const pager = document.getElementById(pagerId);
+  pager.hidden = total <= PAGE;
+  document.getElementById(labelId).textContent = `${store.page + 1} / ${pages}（共 ${total}）`;
+}
+
+function statusHtml(st, err) {
+  if (st === 'processing') return '<div class="asset-status warn"><span class="dot"></span>处理中…</div>';
+  if (st === 'failed') return `<div class="asset-status bad"><span class="dot"></span>失败${err ? ' · ' + esc(err) : ''}</div>`;
+  if (st === 'ready' || st === 'published' || !st) return '<div class="asset-status"><span class="dot"></span>已就绪</div>';
+  return `<div class="asset-status warn"><span class="dot"></span>${esc(st)}</div>`;
+}
+
+function renderAvatars() {
+  const grid = document.getElementById('avatarGrid');
+  const { slice, total } = pageSlice(state.avatar);
+  updatePager('avatarPager', 'avatarPageLabel', state.avatar);
+  if (!total) {
+    grid.innerHTML = '<div class="asset-empty">暂无形象，点击右上角「上传新形象」</div>';
+    return;
   }
-  tb.querySelectorAll('button[data-aid]').forEach(btn => {
+  grid.innerHTML = slice.map((it) => {
+    const ready = it.status === 'ready' || it.status === 'published';
+    const idleImg = `/api/v1/avatars/${it.avatar_id}/versions/${it.version_id}/idle.png?t=${it._ts || 0}`;
+    const idleVid = `/api/v1/avatars/${it.avatar_id}/versions/${it.version_id}/idle.mp4?t=${it._ts || 0}`;
+    const preview = ready
+      ? `<video src="${idleVid}" poster="${idleImg}" muted loop playsinline autoplay></video>`
+      : `<div class="ph">${it.status === 'processing' ? '转码中…' : '暂无预览'}</div>`;
+    return `
+      <article class="asset-card ${it.is_default ? 'is-default' : ''}">
+        <div class="asset-preview">${preview}</div>
+        <div class="asset-body">
+          <div class="asset-tags">
+            ${it.is_default ? '<span class="tag tag-default">默认</span>' : ''}
+            <span class="tag tag-outline">${esc(it.version_id)}</span>
+          </div>
+          <div class="asset-title-row"><h3 class="asset-title">${esc(it.name || it.avatar_id)}</h3></div>
+          ${statusHtml(it.status, it.error)}
+          <div class="asset-meta">${esc(it.avatar_id)}</div>
+        </div>
+        <div class="asset-actions">
+          <button class="btn btn-sm" type="button" data-rename="${esc(it.avatar_id)}" data-name="${esc(it.name || '')}">改名</button>
+          <button class="btn btn-sm" type="button" data-def="${esc(it.avatar_id)}|${esc(it.version_id)}">设默认</button>
+          <button class="btn btn-sm btn-danger" type="button" data-del="${esc(it.avatar_id)}|${esc(it.version_id)}">删除</button>
+        </div>
+      </article>`;
+  }).join('');
+
+  grid.querySelectorAll('button[data-rename]').forEach((btn) => {
+    btn.onclick = async () => {
+      const next = await promptAsync('形象名称', btn.dataset.name || '', '改名');
+      if (next == null) return;
+      const name = next.trim();
+      if (!name) return log('名称不能为空');
+      const fd = new FormData();
+      fd.append('name', name);
+      const res = await fetch(API + `/api/v1/avatars/${btn.dataset.rename}`, { method: 'PATCH', body: fd });
+      log('rename avatar: ' + await res.text());
+      loadAvatars();
+    };
+  });
+  grid.querySelectorAll('button[data-def]').forEach((btn) => {
+    btn.onclick = async () => {
+      const [aid, vid] = btn.dataset.def.split('|');
+      const res = await fetch(API + `/api/v1/avatars/${aid}/versions/${vid}/default`, { method: 'POST' });
+      log('set default: ' + await res.text());
+      loadAvatars();
+    };
+  });
+  grid.querySelectorAll('button[data-del]').forEach((btn) => {
+    btn.onclick = async () => {
+      const [aid, vid] = btn.dataset.del.split('|');
+      if (!(await confirmAsync(`删除形象 ${aid}/${vid} ?`))) return;
+      const res = await fetch(API + `/api/v1/avatars/${aid}/versions/${vid}`, { method: 'DELETE' });
+      log('delete avatar: ' + await res.text());
+      loadAvatars();
+    };
+  });
+}
+
+function initials(name) {
+  const s = String(name || '?').trim();
+  return s.slice(0, 1).toUpperCase() || '?';
+}
+
+function renderVoices() {
+  const grid = document.getElementById('voiceGrid');
+  const { slice, total } = pageSlice(state.voice);
+  updatePager('voicePager', 'voicePageLabel', state.voice);
+  if (!total) {
+    grid.innerHTML = '<div class="asset-empty">暂无音模，点击「添加音模」</div>';
+    return;
+  }
+  grid.innerHTML = slice.map((v) => `
+    <article class="asset-card voice-card ${v.is_default ? 'is-default' : ''}">
+      <div class="voice-avatar" aria-hidden="true">${esc(initials(v.name))}</div>
+      <div class="asset-body">
+        <div class="asset-tags" style="justify-content:center">
+          ${v.is_default ? '<span class="tag tag-default">默认</span>' : ''}
+          <span class="tag tag-outline">本地 Qwen3</span>
+        </div>
+        <h3 class="asset-title">${esc(v.name || v.voice_id)}</h3>
+        <div class="asset-meta">${esc(v.voice_id)}</div>
+        <div class="asset-meta">${esc(v.prompt_text || '（无识别文本）')}</div>
+      </div>
+      <div class="asset-actions">
+        <button class="btn btn-sm" type="button" data-play="${esc(v.voice_id)}">试听</button>
+        <button class="btn btn-sm" type="button" data-vid="${esc(v.voice_id)}">设默认</button>
+        <button class="btn btn-sm btn-danger" type="button" data-del="${esc(v.voice_id)}">删除</button>
+      </div>
+    </article>`).join('');
+
+  grid.querySelectorAll('button[data-play]').forEach((btn) => {
+    btn.onclick = () => {
+      try { if (previewAudio) { previewAudio.pause(); previewAudio = null; } } catch (e) {}
+      previewAudio = new Audio(API + `/api/v1/voices/${btn.dataset.play}/prompt.wav?t=${Date.now()}`);
+      previewAudio.play().catch((e) => log('试听失败: ' + e));
+    };
+  });
+  grid.querySelectorAll('button[data-vid]').forEach((btn) => {
+    btn.onclick = async () => {
+      const res = await fetch(API + `/api/v1/voices/${btn.dataset.vid}/default`, { method: 'POST' });
+      log('set voice default: ' + await res.text());
+      loadVoices();
+    };
+  });
+  grid.querySelectorAll('button[data-del]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!(await confirmAsync('删除音模 ' + btn.dataset.del + ' ?'))) return;
+      const res = await fetch(API + `/api/v1/voices/${btn.dataset.del}`, { method: 'DELETE' });
+      log('delete voice: ' + await res.text());
+      loadVoices();
+    };
+  });
+}
+
+function renderAgents() {
+  const grid = document.getElementById('agentGrid');
+  const { slice, total } = pageSlice(state.agent);
+  updatePager('agentPager', 'agentPageLabel', state.agent);
+  if (!total) {
+    grid.innerHTML = '<div class="asset-empty">暂无智能体，粘贴 Dify App Key 添加</div>';
+    return;
+  }
+  grid.innerHTML = slice.map((a) => `
+    <article class="asset-card agent-card ${a.is_default ? 'is-default' : ''}">
+      <div class="asset-body">
+        <div class="asset-tags">
+          ${a.is_default ? '<span class="tag tag-default">默认</span>' : ''}
+          ${a.mode ? `<span class="tag tag-outline">${esc(a.mode)}</span>` : ''}
+        </div>
+        <h3 class="asset-title">${esc(a.name || a.agent_id)}</h3>
+        <div class="asset-meta">Key: ${esc(a.api_key_masked || '••••')}</div>
+        <div class="asset-meta">${esc(a.base_url || '')}</div>
+      </div>
+      <div class="asset-actions">
+        ${a.is_default
+          ? '<button class="btn btn-sm btn-linkish" type="button" disabled>已默认</button>'
+          : `<button class="btn btn-sm btn-linkish" type="button" data-aid="${esc(a.agent_id)}">设为默认</button>`}
+        <button class="btn btn-sm" type="button" data-copy="${esc(a.agent_id)}">复制 ID</button>
+        <button class="btn btn-sm btn-danger" type="button" data-del="${esc(a.agent_id)}">删除</button>
+      </div>
+    </article>`).join('');
+
+  grid.querySelectorAll('button[data-aid]').forEach((btn) => {
     btn.onclick = async () => {
       const res = await fetch(API + `/api/v1/agents/${btn.dataset.aid}/default`, { method: 'POST' });
       log('set agent default: ' + await res.text());
       loadAgents();
     };
   });
-  tb.querySelectorAll('button[data-del]').forEach(btn => {
+  grid.querySelectorAll('button[data-copy]').forEach((btn) => {
     btn.onclick = async () => {
-      if (!confirm('删除智能体 ' + btn.dataset.del + ' ?')) return;
+      try {
+        await navigator.clipboard.writeText(btn.dataset.copy);
+        log('已复制 ' + btn.dataset.copy);
+      } catch (e) {
+        log('复制失败: ' + e);
+      }
+    };
+  });
+  grid.querySelectorAll('button[data-del]').forEach((btn) => {
+    btn.onclick = async () => {
+      if (!(await confirmAsync('删除智能体 ' + btn.dataset.del + ' ?'))) return;
       const res = await fetch(API + `/api/v1/agents/${btn.dataset.del}`, { method: 'DELETE' });
       log('delete agent: ' + await res.text());
       loadAgents();
@@ -209,190 +412,92 @@ async function loadAgents() {
 async function loadAvatars() {
   const r = await fetch(API + '/api/v1/avatars');
   const j = await r.json();
-  const tb = document.getElementById('avatarRows');
-  tb.innerHTML = '';
+  const items = [];
+  const ts = Date.now();
   for (const a of j.avatars || []) {
     for (const v of a.versions || []) {
-      const tr = document.createElement('tr');
-      const st = v.status || '-';
-      const idle = `/api/v1/avatars/${a.avatar_id}/versions/${v.version_id}/idle.png`;
-      const canEdit = st === 'ready' || st === 'published';
-      tr.innerHTML = `
-        <td>${canEdit ? `<img class="thumb" src="${idle}?t=${Date.now()}" />` : '-'}</td>
-        <td>
-          <div><b>${a.name}</b> <span class="muted">${a.avatar_id}/${v.version_id}</span>
-            ${a.is_default && v.version_id === j.default_version_id ? '<span class="ok">默认</span>' : ''}
-          </div>
-          <div class="muted">status=${st} voice=${v.voice_id || a.voice_id || '-'}
-            frames=${v.idle_frame ?? '-'}/${v.talk_start ?? '-'}/${v.talk_end ?? '-'} count=${v.frame_count ?? '-'}</div>
-          ${st === 'failed' ? `<div class="muted">${v.error || ''}</div>` : ''}
-        </td>
-        <td>
-          <button class="ghost" data-def="${a.avatar_id}|${v.version_id}">设默认</button>
-          ${canEdit ? `<button class="ghost" data-edit="${a.avatar_id}|${v.version_id}|${v.frame_count||0}|${v.idle_frame??0}|${v.talk_start??0}|${v.talk_end??0}">调节帧</button>` : ''}
-        </td>`;
-      tb.appendChild(tr);
+      items.push({
+        avatar_id: a.avatar_id,
+        name: a.name,
+        version_id: v.version_id,
+        status: v.status,
+        error: v.error,
+        is_default: !!(a.is_default && v.version_id === j.default_version_id),
+        _ts: ts,
+      });
     }
   }
-  tb.querySelectorAll('button[data-def]').forEach(btn => {
-    btn.onclick = async () => {
-      const [aid, vid] = btn.dataset.def.split('|');
-      const res = await fetch(API + `/api/v1/avatars/${aid}/versions/${vid}/default`, { method: 'POST' });
-      log('set default: ' + await res.text());
-      loadAvatars();
-    };
-  });
-  tb.querySelectorAll('button[data-edit]').forEach(btn => {
-    btn.onclick = () => {
-      const [aid, vid, count, idle, start, end] = btn.dataset.edit.split('|');
-      openFrameEditor(aid, vid, Number(count), Number(idle), Number(start), Number(end));
-    };
-  });
+  state.avatar.items = items;
+  renderAvatars();
 }
-
-let fe = { aid: '', vid: '', talkTimer: null };
-
-function frameUrl(idx) {
-  return `/api/v1/avatars/${fe.aid}/versions/${fe.vid}/frames/${idx}.png?t=${Date.now()}`;
-}
-
-function openFrameEditor(aid, vid, count, idle, start, end) {
-  fe.aid = aid; fe.vid = vid;
-  const max = Math.max(0, (count || 1) - 1);
-  document.getElementById('frameEditor').classList.remove('hidden');
-  document.getElementById('feTitle').textContent = `${aid}/${vid} · 0..${max}`;
-  ['feIdle','feStart','feEnd'].forEach(id => {
-    const el = document.getElementById(id);
-    el.max = String(max);
-    el.min = '0';
-  });
-  document.getElementById('feIdle').value = String(Math.min(idle, max));
-  document.getElementById('feStart').value = String(Math.min(start, max));
-  document.getElementById('feEnd').value = String(Math.min(end < 0 ? max : end, max));
-  syncFeLabels();
-  showFeFrame(Number(document.getElementById('feIdle').value));
-  document.getElementById('frameEditor').scrollIntoView({ behavior: 'smooth' });
-}
-
-function syncFeLabels() {
-  document.getElementById('feIdleVal').textContent = document.getElementById('feIdle').value;
-  document.getElementById('feStartVal').textContent = document.getElementById('feStart').value;
-  document.getElementById('feEndVal').textContent = document.getElementById('feEnd').value;
-}
-
-function showFeFrame(idx) {
-  document.getElementById('fePreview').src = frameUrl(idx);
-}
-
-['feIdle','feStart','feEnd'].forEach(id => {
-  document.getElementById(id).oninput = () => {
-    syncFeLabels();
-    showFeFrame(Number(document.getElementById(id).value));
-  };
-});
-
-document.getElementById('btnPrevIdle').onclick = () => {
-  if (fe.talkTimer) { clearInterval(fe.talkTimer); fe.talkTimer = null; }
-  showFeFrame(Number(document.getElementById('feIdle').value));
-};
-
-document.getElementById('btnPrevTalk').onclick = () => {
-  if (fe.talkTimer) clearInterval(fe.talkTimer);
-  let i = Number(document.getElementById('feStart').value);
-  const end = Number(document.getElementById('feEnd').value);
-  const start = i;
-  fe.talkTimer = setInterval(() => {
-    showFeFrame(i);
-    i += 1;
-    if (i > end) i = start;
-  }, 40);
-};
-
-document.getElementById('btnSaveFrames').onclick = async () => {
-  if (!fe.aid) return;
-  if (fe.talkTimer) { clearInterval(fe.talkTimer); fe.talkTimer = null; }
-  const body = {
-    idle_frame: Number(document.getElementById('feIdle').value),
-    talk_start: Number(document.getElementById('feStart').value),
-    talk_end: Number(document.getElementById('feEnd').value),
-  };
-  const res = await fetch(API + `/api/v1/avatars/${fe.aid}/versions/${fe.vid}/frames`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  log('save frames: ' + await res.text());
-  loadAvatars();
-  showFeFrame(body.idle_frame);
-};
 
 async function loadVoices() {
   const r = await fetch(API + '/api/v1/voices');
   const j = await r.json();
-  const tb = document.getElementById('voiceRows');
-  tb.innerHTML = '';
-  for (const v of j.voices || []) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${v.voice_id} ${v.is_default ? '<span class="ok">默认</span>' : ''}</td>
-      <td>${v.name || ''}<div class="muted">${v.prompt_text || ''}</div></td>
-      <td><button class="ghost" data-vid="${v.voice_id}">设默认</button>
-          ${v.is_default ? '' : `<button class="ghost" data-del="${v.voice_id}">删除</button>`}</td>`;
-    tb.appendChild(tr);
-  }
-  tb.querySelectorAll('button[data-vid]').forEach(btn => {
-    btn.onclick = async () => {
-      const res = await fetch(API + `/api/v1/voices/${btn.dataset.vid}/default`, { method: 'POST' });
-      log('set voice default: ' + await res.text());
-      loadVoices();
-    };
-  });
-  tb.querySelectorAll('button[data-del]').forEach(btn => {
-    btn.onclick = async () => {
-      if (!confirm('删除音模 ' + btn.dataset.del + ' ?')) return;
-      const res = await fetch(API + `/api/v1/voices/${btn.dataset.del}`, { method: 'DELETE' });
-      log('delete voice: ' + await res.text());
-      loadVoices();
-    };
-  });
+  state.voice.items = j.voices || [];
+  renderVoices();
 }
+
+async function loadAgents() {
+  const r = await fetch(API + '/api/v1/agents');
+  const j = await r.json();
+  state.agent.items = j.agents || [];
+  renderAgents();
+}
+
+bindPager('avatarPager', 'avatar', renderAvatars);
+bindPager('voicePager', 'voice', renderVoices);
+bindPager('agentPager', 'agent', renderAgents);
 
 document.getElementById('btnRefreshA').onclick = loadAvatars;
 document.getElementById('btnRefreshV').onclick = loadVoices;
 document.getElementById('btnRefreshG').onclick = loadAgents;
 
 document.getElementById('btnUploadAvatar').onclick = async () => {
-  const f = document.getElementById('aVideo').files[0];
-  if (!f) return log('请选择视频');
+  const idle = document.getElementById('aIdle').files[0];
+  const talk = document.getElementById('aTalk').files[0];
+  const name = document.getElementById('aName').value.trim();
+  if (!name) return log('请填写形象名称');
+  if (!idle) return log('请选择待机视频');
+  if (!talk) return log('请选择动嘴视频');
   const fd = new FormData();
-  fd.append('name', document.getElementById('aName').value || 'avatar');
-  fd.append('video', f);
-  fd.append('voice_id', document.getElementById('aVoice').value || '');
-  fd.append('idle_frame', document.getElementById('aIdle').value || '3');
-  fd.append('talk_start', document.getElementById('aStart').value || '21');
-  fd.append('talk_end', document.getElementById('aEnd').value || '-1');
+  fd.append('name', name);
+  fd.append('idle_video', idle);
+  fd.append('talk_video', talk);
+  log('上传中…');
   const res = await fetch(API + '/api/v1/avatars', { method: 'POST', body: fd });
   const t = await res.text();
   log('upload avatar: ' + t);
+  if (!res.ok) return;
+  document.getElementById('aIdle').value = '';
+  document.getElementById('aTalk').value = '';
+  document.getElementById('aName').value = '';
+  closeModal(document.getElementById('modalAvatar'));
+  showTab('Avatar');
   loadAvatars();
-  // poll a few times
   for (let i = 0; i < 30; i++) {
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 2000));
     await loadAvatars();
   }
 };
 
 document.getElementById('btnUploadVoice').onclick = async () => {
   const f = document.getElementById('vWav').files[0];
-  const id = document.getElementById('vId').value.trim();
-  if (!f || !id) return log('需要 voice_id 和 wav');
+  const name = document.getElementById('vName').value.trim();
+  if (!name) return log('请填写音模名');
+  if (!f) return log('请选择参考音频');
   const fd = new FormData();
-  fd.append('voice_id', id);
-  fd.append('name', document.getElementById('vName').value || id);
-  fd.append('prompt_text', document.getElementById('vText').value || '');
+  fd.append('name', name);
   fd.append('prompt_wav', f);
+  log('上传并识别中…');
   const res = await fetch(API + '/api/v1/voices', { method: 'POST', body: fd });
-  log('upload voice: ' + await res.text());
+  const t = await res.text();
+  log('upload voice: ' + t);
+  if (res.ok) {
+    document.getElementById('vWav').value = '';
+    document.getElementById('vName').value = '';
+    closeModal(document.getElementById('modalVoice'));
+  }
   loadVoices();
 };
 
@@ -401,11 +506,12 @@ document.getElementById('btnUploadAgent').onclick = async () => {
   if (!key) return log('需要 API Key');
   const fd = new FormData();
   fd.append('api_key', key);
-  fd.append('base_url', document.getElementById('gBase').value.trim());
-  fd.append('agent_id', document.getElementById('gId').value.trim());
-  fd.append('name', document.getElementById('gName').value.trim());
   const res = await fetch(API + '/api/v1/agents', { method: 'POST', body: fd });
   log('register agent: ' + await res.text());
+  if (res.ok) {
+    document.getElementById('gKey').value = '';
+    closeModal(document.getElementById('modalAgent'));
+  }
   loadAgents();
 };
 
@@ -413,5 +519,6 @@ loadAvatars();
 loadVoices();
 loadAgents();
 </script>
+<script src="/static/js/nav.js"></script>
 </body>
 </html>

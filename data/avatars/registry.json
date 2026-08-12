@@ -1,22 +1,15 @@
 {
-  "default_avatar_id": "avatar_001",
+  "default_avatar_id": "avatar_ab5a20e5",
   "default_version_id": "avv_001",
-  "default_voice_id": "avatar_voice_001",
+  "default_voice_id": "voice_aacd9fa8",
+  "default_agent_id": "agent_9cb5e627",
   "avatars": {
-    "avatar_001": {
-      "name": "avatar_001",
-      "voice_id": "avatar_voice_001",
-      "versions": [
-        "avv_001"
-      ]
-    },
-    "avatar_a34e2be8": {
-      "name": "smoke形象",
-      "voice_id": "avatar_voice_001",
+    "avatar_ab5a20e5": {
+      "name": "课堂老师",
+      "voice_id": "voice_ea056880",
       "versions": [
         "avv_001"
       ]
     }
-  },
-  "default_agent_id": "agent_default"
+  }
 }

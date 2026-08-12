@@ -33,33 +33,17 @@ def test_reaper_states() -> None:
     print("ok: reaper state rules")
 
 
-def test_delete_agent_guard() -> None:
+def test_delete_agent() -> None:
     aid = "_gap_agent"
     asset_store.save_agent(agent_id=aid, api_key="app-x", name="gap", base_url="http://x")
-    # make another default so we can delete
-    others = [a for a in asset_store.list_agents() if a["agent_id"] != aid]
-    if others:
-        asset_store.set_default_agent(others[0]["agent_id"])
-        asset_store.delete_agent(aid)
-        assert asset_store.get_agent(aid) is None
-        print("ok: delete non-default agent")
-    else:
-        # only this agent → cannot delete if set default
-        asset_store.set_default_agent(aid)
-        try:
-            asset_store.delete_agent(aid)
-            raise AssertionError("should refuse default")
-        except ValueError:
-            pass
-        # cleanup: clear default then delete
-        with asset_store._lock:  # type: ignore[attr-defined]
-            r = asset_store._read_registry()  # type: ignore[attr-defined]
-            r["default_agent_id"] = ""
-            asset_store._write_registry(r)  # type: ignore[attr-defined]
-        asset_store.delete_agent(aid)
-        print("ok: refuse delete default agent")
+    asset_store.set_default_agent(aid)
+    asset_store.delete_agent(aid)
+    assert asset_store.get_agent(aid) is None
+    _, _, _, dag = asset_store.defaults()
+    assert dag != aid
+    print("ok: delete agent clears default")
 
 
 if __name__ == "__main__":
     test_reaper_states()
-    test_delete_agent_guard()
+    test_delete_agent()

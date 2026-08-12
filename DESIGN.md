@@ -1,54 +1,35 @@
-# Student Avatar Design System
+# Student Avatar UI Design
 
-Single source of truth for student / concurrent / admin web UIs.
+Visual source of truth: `apps/web/` only.
+
+- Styles: `apps/web/css/common.css`, `apps/web/css/app.css`
+- Pages: `index.html`（学生端）、`admin.html`（管理端）、`concurrent.html`（并发联调）、`monitor.html`（总控监听）
+- Nav helpers: `apps/web/js/nav.js`
 
 ## Direction
 
-Classroom digital-human console: dark, calm, tool-like. Not marketing landing.
-One job per page: talk (`/`), multi-lane stress (`/concurrent`), manage assets (`/admin`).
+Dark glass console: deep canvas `#030014`, purple–cyan accent gradient, Outfit typeface.
 
-## Color tokens
+## Tokens (common.css)
 
-```css
---bg: #0f1419 ~ #101820;
---panel: #1a222d;
---text: #e8eef5;
---muted: #8b9bb0;
---accent: #3d8bfd;   /* admin may use #2f7de0 */
---ok: #3ecf8e;
---warn: #f0b429;
---err: #f07178;
---line: #2a3545;
-```
+| Token | Value |
+|---|---|
+| `--bg-deep` | `#030014` |
+| `--bg-card` | `rgba(255,255,255,0.04)` |
+| `--border` | `rgba(255,255,255,0.08)` |
+| `--text` | `#f1f5f9` |
+| `--text-muted` | `#94a3b8` |
+| `--accent` | `#a78bfa` |
+| `--accent-2` | `#22d3ee` |
+| `--success` | `#34d399` |
+| `--danger` | `#f87171` |
+| `--radius` | `16px` |
+| `--font` | `"Outfit", "PingFang SC", "Microsoft YaHei", sans-serif` |
 
-Background: deep navy with soft radial/linear gradients (not flat fill, not purple glow).
-
-## Typography
-
-- UI stack: `"Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`
-- Mono for logs: `ui-monospace, SFMono-Regular, Menlo, monospace`
-- Hierarchy: page title 22px/600 → status 15px → hint/meta 12–13px muted
-
-## Layout
-
-- Student: centered stage `min(720px, 96vw)` 16:9 + HUD panel below
-- Concurrent: responsive card grid `minmax(280px, 1fr)`
-- Admin: tabbed sections, tables, no decorative cards in hero
-
-## Components
-
-- Primary button: accent fill, 10px radius
-- Secondary / ghost: muted fill or transparent + line
-- Danger: deep red for interrupt / close-all
-- Form controls: dark `#0f1520` field, `#2a3545` border, 8px radius
-- Status: green idle/ok, warn busy, err failure — text, not badge piles
-
-## Motion
-
-Keep light: video opacity fade-in on subscribe; recording button state; avoid glow/pulse noise.
+Primary CTA: `.btn.btn-primary`. Panels: `.panel`. Forms: `.form-select` / `.form-input`.
 
 ## Rules
 
-- Reuse tokens above; do not introduce purple-on-white or cream/serif themes
-- Prefer existing HTML pages over new frameworks
-- Admin/tools may use compact tables; student stage stays one composition (video + controls)
+- Do not add a second theme or parallel frontend tree.
+- Reuse existing CSS/components; keep API wiring when restyling.
+- Confirm/prompt via `dhConfirm` / `dhPrompt` in `nav.js`.

@@ -6,6 +6,8 @@
 # local caches / IDE bulk
 .cache/
 *.whl
+nohup.out
+*.pid
 
 # cursor: keep shared rules, drop local junk
 .cursor/*
@@ -29,23 +31,32 @@ data/temp/
 data/temp_audio/
 data/bench/
 data/nginx_public_ip.txt
-tts/data/*.log
-asr/data/*.log
+apps/api/data/
+asr/data/temp_audio/
 
 # agent registry holds real Dify API keys — never commit
 data/agents/
 
-# large / generated media
-data/avatars/**/frames/
-data/avatars/**/*.mp4
+# avatar: keep registry.json only; packages are uploaded via /admin
+data/avatars/avatar_*/
 data/avatars/uploads/
-data/avatars/**/avatar.mp4
+data/avatars/_src/
+data/avatars/**/frames/
+data/avatars/**/idle_frames/
+data/avatars/**/talk_frames/
+data/avatars/**/*.mp4
+data/avatars/**/*.webm
+data/avatars/**/*.mov
 
-# TTS heavy deps & models (install via scripts)
+# TTS (legacy CosyVoice path) heavy deps & models
 tts/models/
 tts/CosyVoice/
 **/modelscope_cache/
 tts/data/*.wav
+
+# Qwen TTS: commit code only — models/cache/bench/wav live under data/
+tts_qwen/data/*
+!tts_qwen/data/.gitkeep
 
 # LiveKit runtime keys file (use example instead)
 deploy/livekit/livekit.yaml
