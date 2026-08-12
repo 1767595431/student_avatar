@@ -1,27 +1,36 @@
 #!/usr/bin/env python3
-"""Assert video publish options target high start quality (no LiveKit connect)."""
+"""Assert publish scale + bitrate for multi-session (no LiveKit connect)."""
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from publisher import video_publish_options  # noqa: E402
+from publisher import (  # noqa: E402
+    PUBLISH_BITRATE,
+    PUBLISH_MAX_SHORT,
+    publish_dims,
+    video_publish_options,
+)
 from livekit import rtc  # noqa: E402
 
 
 def main() -> None:
-    opts = video_publish_options(1080, 1896)
+    w, h = publish_dims(1080, 1896)
+    assert min(w, h) == PUBLISH_MAX_SHORT, (w, h)
+    assert w % 2 == 0 and h % 2 == 0
+    # 1080→540 ⇒ 1896→948
+    assert (w, h) == (540, 948), (w, h)
+
+    opts = video_publish_options(w, h)
     assert opts.simulcast is False
     assert opts.source == rtc.TrackSource.SOURCE_SCREENSHARE
     br = int(opts.video_encoding.max_bitrate)
-    assert br >= 6_000_000, br
-    assert br <= 12_000_000, br
+    assert br == PUBLISH_BITRATE == 1_000_000, br
     dp = getattr(opts, "degradation_preference", None)
-    # livekit>=1.x should set MAINTAIN_RESOLUTION
     if hasattr(rtc, "DegradationPreference"):
         assert dp == rtc.DegradationPreference.MAINTAIN_RESOLUTION, dp
-    print(f"ok bitrate={br} source={opts.source} degradation={dp}")
+    print(f"ok pub={w}x{h} bitrate={br} source={opts.source} degradation={dp}")
 
 
 if __name__ == "__main__":

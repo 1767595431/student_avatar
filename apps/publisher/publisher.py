@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Deque, Optional
 
 import numpy as np
+import cv2
 from livekit import api, rtc
 
 from avatar_frame_controller import AvatarFrameController, AvatarPackage, AvatarState
@@ -17,16 +18,30 @@ from frame_clock import FrameClock
 
 logger = logging.getLogger("publisher.core")
 
+# 推流降清：素材可仍是 1080 竖屏；编码短边≤540、1Mbps，否则 3 路同机就卡
+PUBLISH_MAX_SHORT = 540
+PUBLISH_BITRATE = 1_000_000
+
+
+def publish_dims(src_w: int, src_h: int, max_short: int = PUBLISH_MAX_SHORT) -> tuple[int, int]:
+    """等比缩到短边≤max_short，边长取偶（编码器友好）。"""
+    short = min(src_w, src_h)
+    if short <= max_short:
+        return src_w, src_h
+    scale = max_short / float(short)
+    w = max(2, int(round(src_w * scale)) & ~1)
+    h = max(2, int(round(src_h * scale)) & ~1)
+    return w, h
+
 
 def video_publish_options(width: int, height: int) -> rtc.TrackPublishOptions:
-    """竖屏数字人：抬高码率上限 + 保分辨率，减轻开讲前几秒糊→清爬升。"""
-    px = max(1, width * height)
-    # 1080x1896 ≈ 12Mbps；floor 6Mbps，避免 BWE 从 ~300kbps 慢爬
-    max_br = min(12_000_000, max(6_000_000, int(6_000_000 * px / (1280 * 720))))
+    """竖屏推流：降分辨率 + 1Mbps，优先保分辨率语义。"""
     kwargs: dict = {
-        # screenshare 语义：优先保分辨率（摄像头默认偏保帧率会先降清）
         "source": rtc.TrackSource.SOURCE_SCREENSHARE,
-        "video_encoding": rtc.VideoEncoding(max_bitrate=max_br, max_framerate=25),
+        "video_encoding": rtc.VideoEncoding(
+            max_bitrate=PUBLISH_BITRATE,
+            max_framerate=25,
+        ),
         "simulcast": False,
     }
     dp = getattr(rtc, "DegradationPreference", None)
@@ -69,6 +84,7 @@ class SessionPublisher:
         self._running = False
         self._loop_task: Optional[asyncio.Task] = None
         self._speaking = False
+        self._pub_w, self._pub_h = publish_dims(self.package.width, self.package.height)
 
     def create_token(self, identity: str, name: str, can_publish: bool = True) -> str:
         grant = api.VideoGrants(
@@ -94,7 +110,7 @@ class SessionPublisher:
             can_publish=True,
         )
         await self.room.connect(self.livekit_url, token)
-        w, h = self.package.width, self.package.height
+        w, h = self._pub_w, self._pub_h
         self._video_source = rtc.VideoSource(w, h)
         self._audio_source = rtc.AudioSource(self.sample_rate, 1)
         self._video_track = rtc.LocalVideoTrack.create_video_track("avatar", self._video_source)
@@ -106,9 +122,11 @@ class SessionPublisher:
         self._running = True
         self._loop_task = asyncio.create_task(self._media_loop())
         logger.info(
-            "Publisher started session=%s room=%s size=%sx%s bitrate=%s",
+            "Publisher started session=%s room=%s src=%sx%s pub=%sx%s bitrate=%s",
             self.session_id,
             self.room_name,
+            self.package.width,
+            self.package.height,
             w,
             h,
             max_br,
@@ -192,13 +210,17 @@ class SessionPublisher:
                 buf.extend(b"\x00" * (need - len(buf)))
 
             frame_rgb = self.controller.next_frame()
+            if frame_rgb.shape[1] != self._pub_w or frame_rgb.shape[0] != self._pub_h:
+                frame_rgb = cv2.resize(
+                    frame_rgb, (self._pub_w, self._pub_h), interpolation=cv2.INTER_AREA
+                )
             _, pts = self.clock.next()
             rgba = np.dstack(
                 [frame_rgb, np.full(frame_rgb.shape[:2], 255, dtype=np.uint8)]
             )
             video_frame = rtc.VideoFrame(
-                width=self.package.width,
-                height=self.package.height,
+                width=self._pub_w,
+                height=self._pub_h,
                 type=rtc.VideoBufferType.RGBA,
                 data=rgba.tobytes(),
             )

@@ -153,11 +153,12 @@ bash stop_api.sh && bash start_api.sh
 
 | 项 | 值 | 原因 |
 |----|----|------|
-| `max_bitrate` | 按像素缩放，**上限 12 Mbps**（1080×1896 打满） | 竖屏像素多，低码率会糊 |
-| `max_framerate` | 25 | 与形象包 fps 一致 |
+| 推流分辨率 | 短边 ≤ **540**（1080×1896 → **540×948**） | 像素约 1/4，多路编码才扛得住；素材包仍可原分辨率 |
+| `max_bitrate` | 固定 **1 Mbps** | 匹配降清后的推流；再高多半浪费编码算力 |
+| `max_framerate` | 25 | 与形象包 fps / 音频帧对齐 |
 | `simulcast` | `false` | 避免订到低清层 |
-| `source` | `SOURCE_SCREENSHARE` | 拥堵时优先保分辨率（非摄像头跟手） |
-| `degradation_preference` | `MAINTAIN_RESOLUTION` | 同上；需 `livekit≥1.1` |
+| `source` | `SOURCE_SCREENSHARE` | 拥堵时优先保分辨率 |
+| `degradation_preference` | `MAINTAIN_RESOLUTION` | 需 `livekit≥1.1` |
 
 自检（无需连房）：
 
@@ -182,4 +183,5 @@ python apps/publisher/check_video_publish_opts.py
 |------|----------|------|
 | 会话内清晰↔模糊来回跳 | 否 | 确认已部署 §8.2；强刷页面；新开会话 |
 | 开讲前 1–几秒偏软再变清 | 码率爬升，减轻后仍可能有极短收敛 | 确认 §7 SDK 版本 + §8.1；局域网差时更明显 |
+| 5 路同时问声音卡顿/抢占感 | 多半是视频编码，不是 TTS | 确认推流 **540p/1Mbps** 且已**新开会话** |
 | 整体始终偏糊 | 否 | 形象是否 ≤1080p 原分辨率包；码率/SDK；新开会话 |

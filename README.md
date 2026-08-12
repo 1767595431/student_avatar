@@ -149,14 +149,14 @@ pip install -r apps/api/requirements.txt
 ```bash
 conda activate student_api
 python apps/publisher/check_video_publish_opts.py
-# 期望：bitrate≈12Mbps、source=screenshare、degradation=MAINTAIN_RESOLUTION
+# 期望：pub≈540x948、bitrate=1Mbps、source=screenshare
 ```
 
 画面策略摘要（详解 [`docs/livekit-deploy.md`](docs/livekit-deploy.md) §8）：
 
-- Publisher：竖屏按像素抬码率（上限 **12 Mbps**）、`SOURCE_SCREENSHARE`、`MAINTAIN_RESOLUTION`、关 simulcast  
-- 学生端：进会话即暖推流，**锁定 WebRTC**，会话内不回切本地 idle（避免清晰↔模糊来回跳）  
-- 改 SDK / 推流参数后须 **重启 API**，并让浏览器 **结束旧会话再进**
+- Publisher：推流短边≤**540**（1080 竖屏→约 540×948）、**1 Mbps**、`SOURCE_SCREENSHARE`、关 simulcast（素材包仍可原分辨率）  
+- 学生端：进会话即暖推流，**锁定 WebRTC**，会话内不回切本地 idle  
+- 改推流参数后须 **重启 API**，并 **结束旧会话再进**
 
 ### 4. conda：ASR
 
@@ -324,7 +324,8 @@ bash asr/scripts/smoke_test.sh
 | 识别出字但「智能体无有效回答」 | **Dify/通义并发配额**，不是本地 TTS | [`docs/dify-通义千问并发空回答说明.md`](docs/dify-通义千问并发空回答说明.md) |
 | 画面糊、切换讲话更糊 | 形象包分辨率；须重导后再**新开会话** | 管理端重传 / `avatar_preprocess`（原分辨率≤1080p） |
 | 清晰↔模糊来回跳 | 是否回切本地 idle；须锁定 WebRTC | [`docs/livekit-deploy.md`](docs/livekit-deploy.md) §8；强刷学生页 |
-| 开讲前几秒偏糊再变清 | WebRTC 码率爬升；确认 SDK≥1.1.14 + 12Mbps 推流 | `pip show livekit`；`check_video_publish_opts.py`；**新开会话** |
+| 开讲前几秒偏糊再变清 | WebRTC 码率爬升；确认 SDK≥1.1.14 + 推流 540p/1Mbps | `check_video_publish_opts.py`；**新开会话** |
+| 多路同时问声音/画面卡 | 编码分辨率过高（非 TTS） | 确认短边≤540、1Mbps；结束旧会话重进 |
 | 打断不停 | generation / cancel | `bash apps/api/scripts/smoke_interrupt.sh` |
 
 ---
